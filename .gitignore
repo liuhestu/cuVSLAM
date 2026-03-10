@@ -1,7 +1,11 @@
-*.egg-info
-.idea
-.venv
-.vscode
-__pycache__
 build
+.vscode
+.nvcode*
+*.pyc
+.idea
+.env
+.venv
+.cache
+__pycache__
+*.egg-info
 dataset

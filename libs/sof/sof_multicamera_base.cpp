@@ -1,0 +1,145 @@
+
+/*
+ * Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+ *
+ * NVIDIA software released under the NVIDIA Community License is intended to be used to enable
+ * the further development of AI and robotics technologies. Such software has been designed, tested,
+ * and optimized for use with NVIDIA hardware, and this License grants permission to use the software
+ * solely with such hardware.
+ * Subject to the terms of this License, NVIDIA confirms that you are free to commercially use,
+ * modify, and distribute the software with NVIDIA hardware. NVIDIA does not claim ownership of any
+ * outputs generated using the software or derivative works thereof. Any code contributions that you
+ * share with NVIDIA are licensed to NVIDIA as feedback under this License and may be incorporated
+ * in future releases without notice or attribution.
+ * By using, reproducing, modifying, distributing, performing, or displaying any portion or element
+ * of the software or derivative works thereof, you agree to be bound by this License.
+ */
+
+#include "sof/internal/sof_multicamera_base.h"
+
+namespace cuvslam::sof {
+
+MultiSOFBase::MultiSOFBase(const camera::Rig& rig, const camera::FrustumIntersectionGraph& fid,
+                           const Settings& sof_settings, const odom::KeyFrameSettings& keyframe_settings)
+    : rig_(rig), fid_(fid), box_prefilter_(sof_settings.box3_prefilter), kf_selector_(keyframe_settings) {}
+
+void MultiSOFBase::reset_keyframe_selector() {
+  kf_selector_.reset();
+  last_kf_tracks_.clear();
+  last_kf_timestamp_ = 0;
+}
+
+bool MultiSOFBase::trackNextFrame(const Sources& curr_sources, Images& curr_images, const Images& prev_images,
+                                  const Sources& masks_sources, const Isometry3T& predicted_world_from_rig,
+                                  std::unordered_map<CameraId, std::vector<camera::Observation>>& observations,
+                                  FrameState& state) {
+  TRACE_EVENT ev = profiler_domain_.trace_event("trackNextFrame", profiler_color_);
+
+  state = FrameState::None;
+
+  for (auto& [cam_id, obs] : observations) {
+    obs.clear();
+  }
+  int64_t current_time_ns = -1;
+  size_t num_failed_sofs = 0;
+
+  for (auto& sof : mono_sof_) {
+    TRACE_EVENT ev1 = profiler_domain_.trace_event("mono start", profiler_color_);
+    assert(sof);
+    const CameraId cam_id = sof->camera_id();
+
+    auto curr_it = curr_images.find(cam_id);
+    if (curr_it == curr_images.end()) {
+      num_failed_sofs++;
+      continue;
+    }
+
+    const ImageSource& curr_source = curr_sources.at(cam_id);
+    const ImageContextPtr curr_image = curr_it->second;
+
+    // should be same for all images
+    current_time_ns = curr_image->get_image_meta().timestamp;
+
+    ImageContextPtr prev_image;
+    auto prev_it = prev_images.find(cam_id);
+    if (prev_it != prev_images.end()) {
+      prev_image = prev_it->second;
+    }
+
+    const ImageSource& mask_src = masks_sources.at(cam_id);
+    sof->track({curr_source, curr_image}, prev_image, predicted_world_from_rig, &mask_src);
+  }
+
+  if (num_failed_sofs == mono_sof_.size()) {
+    return false;
+  }
+
+  MulticamTracksVector primary_tracks;
+  for (auto& sof : mono_sof_) {
+    TRACE_EVENT ev1 = profiler_domain_.trace_event("mono finish", profiler_color_);
+    const CameraId cam_id = sof->camera_id();
+    const auto curr_it = curr_images.find(cam_id);
+    if (curr_it == curr_images.end()) {
+      continue;
+    }
+    FrameState mono_state;  // TODO: launch l->r tracking for this stereo camera only if it keyframe
+    const TracksVector& tracks_vector = sof->finish(mono_state);
+    primary_tracks.push_back({cam_id, std::cref(tracks_vector)});
+    tracks_vector.export_to_observations_vector(*rig_.intrinsics[cam_id], observations[cam_id]);
+  }
+
+  if (is_keyframe(primary_tracks, current_time_ns)) {
+    TRACE_EVENT ev1 = profiler_domain_.trace_event("prim->sec", profiler_color_);
+    StartKeyframe();
+    size_t num_prim_to_sec_tracks = 0;
+    const auto& primary_cams = fid_.primary_cameras();
+    for (CameraId primary_cam_id : primary_cams) {
+      if (curr_images.find(primary_cam_id) == curr_images.end()) {
+        continue;
+      }
+      const auto& secondary_cams = fid_.secondary_cameras(primary_cam_id);
+      for (CameraId secondary_cam_id : secondary_cams) {
+        if (curr_images.find(secondary_cam_id) == curr_images.end()) {
+          continue;
+        }
+        LaunchTrackingPrimaryToSecondary(primary_cam_id, secondary_cam_id, curr_sources, curr_images,
+                                         observations[primary_cam_id], &observations[secondary_cam_id]);
+        num_prim_to_sec_tracks++;
+      }
+    }
+    // if (num_prim_to_sec_tracks == 0) {
+    //     /* We cant track any stereo pair because of the image loss. Just pass observations to 3D in the hope we
+    //      * won't drift too much. Reset keyframe selector to try on the next frame; */
+    //     reset_keyframe_selector();
+    //     return true;
+    // }
+    GetTrackingResults(observations);
+    state = FrameState::Key;
+  }
+  return true;
+}
+
+bool MultiSOFBase::is_keyframe(const MulticamTracksVector& tracks, const int64_t current_timestamp_ns) {
+  last_kf_tracks_vec_.reset();
+  all_tracks_vec_.reset();
+  for (const auto& [cam_id, tracks_vector] : tracks) {
+    all_tracks_vec_.add(tracks_vector);
+
+    const auto& last_kf_vec = last_kf_tracks_[cam_id];
+    last_kf_tracks_vec_.add(last_kf_vec);
+  }
+
+  all_tracks_vec_.sort();
+  last_kf_tracks_vec_.sort();
+
+  if (kf_selector_.select(all_tracks_vec_, current_timestamp_ns, last_kf_tracks_vec_, last_kf_timestamp_)) {
+    for (const auto& [cam_id, tracks_vector] : tracks) {
+      last_kf_tracks_[cam_id] = tracks_vector;
+    }
+    last_kf_timestamp_ = current_timestamp_ns;
+    return true;
+  }
+  return false;
+}
+
+}  // namespace cuvslam::sof

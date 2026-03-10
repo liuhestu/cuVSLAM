@@ -33,38 +33,41 @@ The example provided in this repository uses the **Brown** model for the origina
 
 > **Note**: Ensure the correct number and order of distortion coefficients when initializing your cameras. If you experience poor tracking performance with unrectified cameras, consider testing with `OdometryMode.Mono`. This mode typically yields smoother trajectories and accurate rotational poses when camera parameters are correct
 
+## Set Up the PyCuVSLAM Environment
+
+Refer to the [Installation Guide](../README.md#prerequisites) for detailed environment setup instructions
+
 ## Dataset Setup
 
 1. Download the EuRoC MH_01_easy dataset:
 
-    ```bash
-    mkdir -p examples/euroc/dataset
-    wget http://robotics.ethz.ch/~asl-datasets/ijrr_euroc_mav_dataset/machine_hall/MH_01_easy/MH_01_easy.zip -O examples/euroc/dataset/MH_01_easy.zip
-    unzip examples/euroc/dataset/MH_01_easy.zip -d examples/euroc/dataset
-    rm examples/euroc/dataset/MH_01_easy.zip
-    ```
+    1. Go to https://doi.org/10.3929/ethz-b-000690084
+    2. Download "Machine Hall Datasets (ZIP, 12096.15 MB)"
+    3. Extract `/machine_hall/MH_01_easy/MH_01_easy.zip` from the downloaded archive (`machine_hall.zip`)
+    4. Extract `mav0` to `dataset/` from `MH_01_easy.zip`
 
 2. Copy the calibration files:
 
     ```bash
-    cp examples/euroc/sensor_cam0.yaml examples/euroc/dataset/mav0/cam0/sensor_recalibrated.yaml
-    cp examples/euroc/sensor_cam1.yaml examples/euroc/dataset/mav0/cam1/sensor_recalibrated.yaml
-    cp examples/euroc/sensor_imu0.yaml examples/euroc/dataset/mav0/imu0/sensor_recalibrated.yaml
+    cd examples/euroc
+    cp sensor_cam0.yaml dataset/mav0/cam0/sensor_recalibrated.yaml
+    cp sensor_cam1.yaml dataset/mav0/cam1/sensor_recalibrated.yaml
+    cp sensor_imu0.yaml dataset/mav0/imu0/sensor_recalibrated.yaml
     ```
 
 3. Ensure the dataset path is correctly set at the beginning of the visual tracking script.
 
 ## Running Stereo Inertial Odometry
 
-To start tracking on the EuRoC dataset, execute:
+In the `examples/euroc` folder run:
 
 ```bash
-python3 examples/euroc/track_euroc.py
+python3 track_euroc.py
 ```
 
 You should see the following visualization in Rerun. In Visual-Inertial mode, the red arrow pointing downward represents the gravity vector estimated by cuVSLAM during inertial tracking:
 
-![Visualization Example](../../assets/tutorial_euroc.gif)
+![Visualization Example](../assets/tutorial_euroc.gif)
 
 > **Note**:
 > - If you experience poor Stereo-Inertial tracking, first validate that Mono tracking and Stereo Visual tracking perform correctly with the same intrinsic and extrinsic camera parameters

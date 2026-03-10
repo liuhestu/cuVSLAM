@@ -15,7 +15,7 @@ To initialize the PyCuVSLAM tracker, set `odometry_mode` to `Tracker.OdometryMod
 
 - `depth_scale_factor`: defines the mapping between pixel values and real-world depth values
 - `depth_camera_id`: the camera index in the camera rig providing the visual image corresponding to the depth map
-- `enable_depth_stereo_tracking`: enables the use of the visual camera from the monocular-depth setup as part of a stereo pair, providing additional input data to the RGBD tracker. For more details, see the example for the [ZED camera](../zed/README.md#monocular-depth--stereo-visual-odometry)
+- `enable_depth_stereo_tracking`: enables the use of the visual camera from the monocular-depth setup as part of a stereo pair, providing additional input data to the RGBD tracker. For more details, see the example for the [ZED camera](../zed/live/README.md#monocular-depth--stereo-visual-odometry)
 
 ## Masking Regions to Prevent Feature Selection
 
@@ -23,7 +23,7 @@ Depth maps captured by real cameras often exhibit reduced quality near image edg
 
 Each border (top, bottom, left, right) can have independently specified mask thicknesses, allowing flexible exclusion of problematic regions. In the schematic example below, transparent red regions illustrate areas where masks are applied:
 
-![tum_mask_example](../../assets/tutorial_tum_mask.png)
+![tum_mask_example](../assets/tutorial_tum_mask.png)
 
 You can define these mask borders individually for each camera instance with pixel values:
 
@@ -35,22 +35,27 @@ cam.border_left = 10
 cam.border_right = 50
 ```
 
+## Set Up the PyCuVSLAM Environment
+
+Refer to the [Installation Guide](../README.md#prerequisites) for detailed environment setup instructions
+
 ## Dataset Setup
 
 1. Download the TUM RGB-D freiburg3 dataset by executing the following commands:
 
     ```bash
-    mkdir -p examples/tum/dataset
-    wget https://cvg.cit.tum.de/rgbd/dataset/freiburg3/rgbd_dataset_freiburg3_long_office_household.tgz -O examples/tum/dataset/rgbd_dataset_freiburg3_long_office_household.tgz
-    tar -xzf examples/tum/dataset/rgbd_dataset_freiburg3_long_office_household.tgz -C examples/tum/dataset
-    rm examples/tum/dataset/rgbd_dataset_freiburg3_long_office_household.tgz
+    cd examples/tum
+    mkdir -p dataset
+    wget https://cvg.cit.tum.de/rgbd/dataset/freiburg3/rgbd_dataset_freiburg3_long_office_household.tgz -O dataset/rgbd_dataset_freiburg3_long_office_household.tgz
+    tar -xzf dataset/rgbd_dataset_freiburg3_long_office_household.tgz -C dataset
+    rm dataset/rgbd_dataset_freiburg3_long_office_household.tgz
     ```
 2. Copy the calibration file:
 
     ```bash
-    cp examples/tum/freiburg3_rig.yaml examples/tum/dataset/rgbd_dataset_freiburg3_long_office_household/freiburg3_rig.yaml
+    cp freiburg3_rig.yaml dataset/rgbd_dataset_freiburg3_long_office_household/freiburg3_rig.yaml
     ```
-> **Note**: PyCuVSLAM requires rectified images for monocular-depth visual odometry, which is why the freiburg3 dataset is used. The camera calibration is provided in [freiburg3_rig.yaml](freiburg3_rig.yaml), corresponding to the original calibration parameters available on the [dataset page](https://cvg.cit.tum.de/data/dataset/rgbd-dataset/file_formats#intrinsic_camera_calibration_of_the_kinect) 
+> **Note**: PyCuVSLAM requires rectified images for monocular-depth visual odometry, which is why the freiburg3 dataset is used. The camera calibration is provided in [freiburg3_rig.yaml](freiburg3_rig.yaml), corresponding to the original calibration parameters available on the [dataset page](https://cvg.cit.tum.de/data/datasets/rgbd-dataset/file_formats#intrinsic_camera_calibration_of_the_kinect)
 
 3. Ensure the dataset path is correctly set at the beginning of the visual tracking script
 
@@ -67,4 +72,4 @@ python3 track_tum.py
 
 You should see the following interactive visualization in rerun:
 
-![Visualization Example](../../assets/tutorial_tum.gif)
+![Visualization Example](../assets/tutorial_tum.gif)

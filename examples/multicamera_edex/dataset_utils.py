@@ -1,13 +1,17 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 #
-# Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-#
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
-#
+# NVIDIA software released under the NVIDIA Community License is intended to be used to enable
+# the further development of AI and robotics technologies. Such software has been designed, tested,
+# and optimized for use with NVIDIA hardware, and this License grants permission to use the software
+# solely with such hardware.
+# Subject to the terms of this License, NVIDIA confirms that you are free to commercially use,
+# modify, and distribute the software with NVIDIA hardware. NVIDIA does not claim ownership of any
+# outputs generated using the software or derivative works thereof. Any code contributions that you
+# share with NVIDIA are licensed to NVIDIA as feedback under this License and may be incorporated
+# in future releases without notice or attribution.
+# By using, reproducing, modifying, distributing, performing, or displaying any portion or element
+# of the software or derivative works thereof, you agree to be bound by this License.
+
 import os
 import numpy as np
 import cuvslam as vslam
@@ -25,7 +29,7 @@ def to_distortion_model(distortion: str) -> vslam.Distortion.Model:
     }
     if distortion not in distortion_models:
         raise ValueError(f"Unknown distortion model: {distortion}")
-        
+
     return distortion_models[distortion]
 
 def opengl_to_opencv_transform(rotation: np.ndarray, translation: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -41,16 +45,16 @@ def transform_to_pose(transform_16: List[float]) -> vslam.Pose:
     transform = np.array(transform_16).reshape([-1, 4])
     rotation_opencv, translation_opencv = opengl_to_opencv_transform(transform[:3, :3], transform[:3, 3])
     rotation_quat = Rotation.from_matrix(rotation_opencv).as_quat()
-    
+
     return vslam.Pose(rotation = rotation_quat, translation = translation_opencv)
 
 def read_stereo_edex(file_path: str):
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"EDEX file not found: {file_path}")
-        
+
     with open(file_path, 'r') as file:
         data = json.load(file)
-    
+
     cameras = []
     for idx, cam_data in enumerate(data[0]['cameras']):
         config = {
@@ -60,7 +64,7 @@ def read_stereo_edex(file_path: str):
             'resolution': cam_data['intrinsics']['size'],
             'extrinsics': cam_data['transform']
         }
-        
+
         cam = vslam.Camera()
         cam.distortion = vslam.Distortion(
             to_distortion_model(config['camera_model']),
@@ -70,7 +74,7 @@ def read_stereo_edex(file_path: str):
         cam.principal = config['intrinsics'][2:4]
         cam.size = config['resolution']
         cam.rig_from_camera = transform_to_pose(config['extrinsics'])
-        
+
         cameras.append(cam)
-    
+
     return cameras

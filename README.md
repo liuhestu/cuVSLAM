@@ -1,233 +1,57 @@
-# PyCuVSLAM: CUDA-Accelerated Visual Odometry and Mapping
+# cuVSLAM: CUDA-Accelerated Visual Odometry and Mapping
 
-![Demo](pycuvslam.gif)
+![Demo](examples/assets/tutorial_multicamera_edex.gif)
 
-### [ArXiv paper](https://www.arxiv.org/abs/2506.04359) | [Python API](https://nvlabs.github.io/PyCuVSLAM/api.html) | [ROS2](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_visual_slam)
+
+### [ArXiv paper](https://www.arxiv.org/abs/2506.04359) | [Python API](https://nvidia-isaac.github.io/cuVSLAM/python/) | [C++ API](https://nvidia-isaac.github.io/cuVSLAM/cpp/) | [ROS2](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_visual_slam)
 
 ## Overview
 
+cuVSLAM is the library by NVIDIA, providing various Visual Tracking Camera modes and Simultaneous Localization and Mapping (SLAM) capabilities. Leveraging CUDA acceleration and a rich set of features, cuVSLAM delivers highly accurate, computationally efficient, real-time performance.
 
-PyCuVSLAM is the official Python wrapper for the NVIDIA cuVSLAM library, providing various Visual Tracking Camera modes and Simultaneous Localization and Mapping (SLAM) capabilities. Leveraging CUDA acceleration and a rich set of features, PyCuVSLAM delivers highly accurate, computationally efficient, real-time performance.
-
-![Overview](assets/pycuvslam_overview.png)
+![Overview](examples/assets/pycuvslam_overview.jpg)
 
 ## Table of Contents
 
-- 🛠️ [System Requirements and Setup](#system-requirements-and-setup)
-- [💻 Examples and Guides](#examples-and-guides)
-- [🤖 ROS2 Support](#ros2-support)
-- [📚 API Documentation and Technical Report](#api-documentation-and-technical-report)
-- [⚙️ Performance and Troubleshooting](#performance-and-troubleshooting)
-- [⚖️ License](#license)
-- [🎓 Citation](#citation)
+- [Using cuVSLAM](#using-cuvslam)
+- [Performance](#performance)
+- [Install PyCuVSLAM](#install-pycuvslam)
+- [Build cuVSLAM](#build-cuvslam)
+- [FAQ](#faq)
+- [Development](#development)
+- [Feedback](#feedback)
+- [License](#license)
+- [Citation](#citation)
 
-## System Requirements and Setup
+# Using cuVSLAM
 
-PyCuVSLAM is supported on the following OS and platforms, with the system requirements and installation methods listed below:
-
-| OS                                | Architecture | System Requirements                          | Supported Installation Method                   |
-|-----------------------------------|--------------|----------------------------------------------|-------------------------------------------------|
-| Ubuntu 22.04 (Desktop/Laptop)     | x86_64       | Python 3.10, Nvidia GPU with CUDA 12.6       | [Native][3], [Venv][4], [Conda][5], [Docker][6] |
-| Ubuntu 24.04 (Desktop/Laptop)     | x86_64       | Nvidia GPU with CUDA 12.6                    | [Conda][5], [Docker][6]                         |
-| Ubuntu 22.04 ([Nvidia Jetson][1]) | aarch64      | [Jetpack 6.1/6.2][2], Python 3.10, CUDA 12.6 | [Native][3], [Venv][4], [Conda][5], [Docker][6] |
-
-[1]: https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/
-[2]: https://docs.nvidia.com/jetson/archives/jetpack-archived/jetpack-62/
-[3]: #option-1-native-install
-[4]: #option-2-using-venv
-[5]: #option-3-using-conda
-[6]: #option-4-using-docker
-
-
-### CUDA Toolkit
-Make sure you have the CUDA Toolkit installed, you can download the toolkit from the [NVIDIA website](https://developer.nvidia.com/cuda-downloads). If you install the CUDA toolkit for the first time, make sure to restart your computer.
-
-### Environment setup
-Depending on your OS and platform and the supported installation method, follow the instructions below to environment setup and PyCuVSLAM installation.
-
->**Note:**  to correctly clone PyCuVSLAM binaries, Git LFS is required before cloning the repository. Please install it by running:
->```bash
->sudo apt-get install git-lfs
->```
-
-#### Option 1: Native Install
-**Important**: This option is only available for Ubuntu 22.04 x86_64 and Jetpack 6.1/6.2 aarch64.
-
-There are no special instructions for native install, proceed to [PyCuVSLAM installation](#pycuvslam-installation).
-
-#### Option 2: Using Venv
-**Important**: This option is only available for Ubuntu 22.04 x86_64 and Jetpack 6.1/6.2 aarch64.  
-
-Create a virtual environment:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-Proceed to [PyCuVSLAM installation](#pycuvslam-installation)  
-
-#### Option 3: Using Conda
-
-**Important**: This option has been tested on Ubuntu 22.04 x86_64 and Ubuntu 24.04 x86_64
-
-Create a conda environment and install the required packages:
-
-```bash
-conda create -n pycuvslam python==3.10 pip
-conda activate pycuvslam
-conda install -c conda-forge libstdcxx-ng
-export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
-```
->**Note**: for ubuntu 22.04 use `libstdcxx-ng=12.2.0` version
-
-The `LD_LIBRARY_PATH` environment variable must be set every time you activate the
-conda environment to ensure that the correct `libpython` library is loaded.
-
-Proceed to [PyCuVSLAM installation](#pycuvslam-installation)
-
-#### Option 4: Using Docker
-
-PyCuVSLAM provides Docker support for both x86_64 and Jetson platforms with RealSense camera integration.
-
-1. **Setup NGC (NVIDIA GPU Cloud):**
-    ```bash
-    docker login nvcr.io --username '$oauthtoken'
-    ```
-    For password, enter your NGC API key from: https://org.ngc.nvidia.com/setup/api-keys
-
-2. **Clone the repository:**
-    ```bash
-    git clone https://github.com/NVlabs/pycuvslam.git
-    cd pycuvslam
-    ```
-
-**For x86_64 (Desktop/Laptop):**
-
-3. Build the x86 Docker image:
-    ```bash
-    docker build -f docker/Dockerfile.realsense-x86 -t pycuvslam:realsense-x86 .
-    ```
-
-4. Run the x86 container:
-    ```bash
-    bash docker/run_docker_x86.sh
-    ```
-
-**For Jetson (aarch64):**
-
-3. Build the Jetson Docker image:
-    ```bash
-    docker build -f docker/Dockerfile.realsense-jetson -t pycuvslam:realsense-jetson .
-    ```
-
-4. Run the Jetson container:
-    ```bash
-    bash docker/run_docker_jetson.sh
-    ```
-
-**Features:**
-- CUDA 12.6.1 support (Ubuntu 22.04)
-- RealSense camera integration with librealsense
-- X11 forwarding for GUI applications
-- Automatic pycuvslam package installation
-- USB device passthrough for camera access
-
-### PyCuVSLAM Installation
-
-1. Clone the PyCuVSLAM repository.
-    ```bash
-    git clone https://github.com/NVlabs/pycuvslam.git
-    cd pycuvslam
-    ```
-
-2. Install the PyCuVSLAM package.
-    ```bash
-    pip install -e bin/x86_64
-    ```
-    For Jetson, use the following command:
-    ```bash
-    pip install -e bin/aarch64
-    ```
-3. Install PyCuVSLAM using one of the installation methods mentioned above, and then install the
-   required packages for the examples:
-    ```bash
-    pip install -r examples/requirements.txt
-    ```
-
-## Examples and Guides
-
-Explore various examples to quickly get started with PyCuVSLAM:
-
-### Visual Tracking Mode Examples
-
-- **Monocular Visual Odometry**
-    - [EuRoC Dataset](examples/euroc/README.md)
-
-- **Monocular-Depth Visual Odometry**
-    - [TUM Dataset](examples/tum/README.md#running-monocular-depth-odometry)
-    - [RealSense Live Camera](examples/realsense/README.md#running-monocular-depth-visual-odometry)
-    - [ZED Live Camera](examples/zed/README.md#running-monocular-depth-visual-odometry)
-
-- **Stereo Visual Odometry**
-    - [KITTI Dataset](examples/kitti/README.md#running-pycuvslam-stereo-visual-odometry)
-    - [RealSense Live Camera](examples/realsense/README.md#running-stereo-visual-odometry)
-    - [ZED Live Camera](examples/zed/README.md#running-stereo-visual-odometry)
-    - [OAK-D Live Camera](examples/oak-d/README.md#running-stereo-visual-odometry)
-
-- **Stereo Visual-Inertial Odometry**
-    - [EuRoC Dataset](examples/euroc/README.md#running-stereo-inertial-odometry)
-    - [RealSense Live Camera](examples/realsense/README.md#running-stereo-inertial-odometry)
-
-- **Multi-Camera Stereo Visual Odometry**
-    - [Tartan Ground Dataset](examples/multicamera_edex/README.md#tartan-ground-dataset)
-    - [R2B Galileo Dataset](examples/multicamera_edex/README.md#r2b-galileo-dataset)
-    - [RealSense Live Camera](examples/realsense/README.md#running-multicamera-odometry)
-
-### SLAM Examples
-
-- [**Visual Mapping, Localization, and Map Saving/Loading**](examples/kitti/README.md#slam-mapping-collecting-storing-loading-and-localization)
-
-### Advanced Features and Guides
-
-- **Distorted Images**
-    - [EuRoC Dataset](examples/euroc/README.md#distortion-models)
-    - [OAK-D Live Camera](examples/oak-d/README.md#running-stereo-visual-odometry)
-    - [ZED Live Camera](examples/zed/README.md#using-distorted-images)
-
-- **Image Masking**
-    - [Static Masks](examples/tum/README.md#masking-regions-to-prevent-feature-selection)
-    - [Dynamic Masks](examples/kitti/README.md#dynamic-masks-with-pytorch-tensors)
-
-- [**PyTorch GPU Tensor Handling**](examples/kitti/README.md#example-real-time-car-segmentation)
-
-- [**RealSense Multi-Camera Assembly Guide**](examples/realsense/multicamera_hardware_assembly.md)
-
-- [**Nvblox live 3D reconstruction**](https://nvidia-isaac.github.io/nvblox/pages/torch_examples_realsense.html#realsense-live-example)
+The quickest way to get started is to [install PyCuVSLAM from a pre-built wheel](#install-from-wheels)
+and explore the [examples](examples/).
 
 ## ROS2 Support
 
-If you would like to use cuVSLAM in a ROS2 environment, please refer to the following links:
+To use cuVSLAM in a ROS2 environment:
 * [Isaac ROS cuVSLAM GitHub](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_visual_slam)
 * [Isaac ROS cuVSLAM Documentation](https://nvidia-isaac-ros.github.io/concepts/visual_slam/cuvslam/index.html)
 * [Isaac ROS cuVSLAM User Manual](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_visual_slam/isaac_ros_visual_slam/index.html)
 
-## API Documentation and Technical Report
+## cuVSLAM Documentation
 
-- For detailed API documentation, please visit the [PyCuVSLAM API Documentation](https://nvlabs.github.io/PyCuVSLAM/api.html)
+- [cuVSLAM Technical Report](https://www.arxiv.org/abs/2506.04359)
+- [PyCuVSLAM API Documentation](https://nvidia-isaac.github.io/cuVSLAM/python/)
+- [cuVSLAM C++ API Documentation](https://nvidia-isaac.github.io/cuVSLAM/cpp/)
 
-- For technical details on the cuVSLAM algorithms, validation, and benchmarking results, refer to our [Technical Report](https://www.arxiv.org/abs/2506.04359)
-
-## Performance and Troubleshooting
+# Performance
 
 cuVSLAM is a highly optimized visual tracking library validated across numerous public datasets and popular robotic camera setups. For detailed benchmarking and validation results, please refer to our [technical report](https://arxiv.org/html/2506.04359v3#S3).
 
-<img src="./assets/cuvslam_performance.png" alt="cuVSLAM performance" width="800" />
+<img src="examples/assets/cuvslam_performance.png" alt="cuVSLAM performance" width="800" />
 
 The accuracy and robustness of cuVSLAM can be influenced by several factors. If you experience performance issues, please check your system against these common causes:
 
 - **Hardware Overload**: Hardware overload can negatively impact visual tracking, resulting in dropped frames or insufficient computational resources for cuVSLAM. Disable intensive visualization or image-saving operations to improve performance. For expected performance metrics on Jetson embedded platforms, see our [technical report](https://arxiv.org/html/2506.04359v3#A1.F13)
 
-- **Intrinsic and Extrinsic Calibration**: Accurate camera calibration is crucial. Ensure your calibration parameters are precise. For more details, refer to our guide on [image undistortion](examples/euroc/README.md#distortion-models). If you're new to calibration, consider working with an [experienced vendors](https://nvidia-isaac-ros.github.io/getting_started/hardware_setup/sensors/amr_extrinsic_calibration.html#extrinsic-calibration-of-sensors-in-custom-locations)
+- **Intrinsic and Extrinsic Calibration**: Accurate camera calibration is crucial. Ensure your calibration parameters are precise. For more details, refer to our guide on [image undistortion](examples/euroc/README.md#distortion-models). If you're new to calibration, consider working with [experienced vendors](https://nvidia-isaac-ros.github.io/v/release-3.2/getting_started/hardware_setup/sensors/amr_extrinsic_calibration.html#extrinsic-calibration-of-sensors-in-custom-locations)
 
 - **Synchronization and Timestamps**: Accurate synchronization significantly impacts cuVSLAM performance. Make sure multi-camera images are captured simultaneously—ideally through hardware synchronization—and verify correct relative timestamps across cameras. Refer to our [multi-camera hardware assembly guide](examples/realsense/multicamera_hardware_assembly.md) for building a rig with synchronized RealSense cameras
 
@@ -239,38 +63,143 @@ The accuracy and robustness of cuVSLAM can be influenced by several factors. If 
 
 - **Motion Blur**: Excessive motion blur can negatively impact tracking. Ensure that exposure times are short enough to minimize motion blur. If avoiding motion blur isn't feasible, consider increasing the frame rate or try the following [Mono-Depth](examples/realsense/README.md#running-monocular-depth-visual-odometry) or [Stereo Inertial](examples/realsense/README.md#running-stereo-inertial-odometry) tracking modes
 
-### Troubleshooting FAQ
+See [Troubleshooting](#troubleshooting)
 
-**Q**: When trying to run examples I get `ImportError: pycuvslam/cuvslam/x86/cuvslam/pycuvslam.so: invalid ELF header` 
+# Install PyCuVSLAM
 
-**A**: You need Git LFS to correctly pull binary files: 
+PyCuVSLAM is the Python wrapper (bindings) for the cuVSLAM library.
+
+## Install from Wheels
+
+Pre-built wheels are available on the [cuVSLAM releases page](https://github.com/nvidia-isaac/cuVSLAM/releases)
+for the following configurations:
+
+| Ubuntu | Python | CUDA | Architectures |
+|--------|--------|------|---------------|
+| 22.04 | 3.10 | 12, 13 | x86_64, aarch64 |
+| 24.04+ | 3.12+ | 12, 13 | x86_64, aarch64 |
+
+**Prerequisite**: [CUDA Toolkit 12 or 13](https://developer.nvidia.com/cuda/toolkit) must be installed separately (not included in the wheels).
+
+To install (virtual environment is recommended):
+
+1. Go to the [releases page](https://github.com/nvidia-isaac/cuVSLAM/releases).
+2. Download the wheel matching your CUDA version (`cu12` or `cu13`), Python version, and platform (`x86_64` or `aarch64`).
+3. Install with pip:
+
 ```bash
-sudo apt-get install git-lfs
-# in the repo directory:
-git lfs install
-git lfs pull
+pip install cuvslam-*.whl
 ```
 
-**Q**: Can I run PyCuVSLAM with Python 3.x?
+If a pre-built wheel is not available for your system, see [Install from Source](#install-from-source) below.
 
-**A**: We are working on supporting wider range of systems, but current version is only built for Python 3.10. We recommend using Docker or Conda for now.
+## Install from Source
 
-### Reporting other issues
-Are you having problems running PyCuVSLAM? Do you have any suggestions? We'd love to hear your feedback in the [issues](https://github.com/NVlabs/pycuvslam/issues) tab.
+*Note*: cuVSLAM must be [built](#build-cuvslam) before installing from source.
 
-## License
-This project is licensed under a non-commercial NVIDIA license, for details refer to the [LICENCE](LICENSE) file.
+To install PyCuVSLAM from repository (virtual environment is recommended):
 
-## Citation
+```bash
+CUVSLAM_BUILD_DIR=<path-to-cuvslam-build> pip install python/
+```
+`CUVSLAM_BUILD_DIR` is required for build script to find `libcuvslam.so`.
+**Warning**: Due to scikit-build-core limitations, bindings must be reinstalled after rebuilding libcuvslam.
+
+# Build cuVSLAM
+
+## Pre-built Libraries
+
+Pre-built C++ libraries are available on the [releases page](https://github.com/nvidia-isaac/cuVSLAM/releases)
+for Ubuntu 22.04/24.04 on x86_64 and Jetson(aarch64) with CUDA 12 and CUDA 13.
+
+For Python usage, [pre-built wheels](#install-from-wheels) are the recommended approach.
+
+## Building from Source
+
+### Requirements
+
+* Ubuntu 22+ (22.04 & 24.04 tested) x86_64/aarch64 (Desktop/Laptop & [Nvidia Jetson Orin/Thor](https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/))
+* [CUDA Toolkit 12 or 13](https://developer.nvidia.com/cuda/toolkit), [Jetpack 6.1/6.2/7.0/7.1](https://docs.nvidia.com/jetson/)
+* `apt update && apt install g++ cmake git git-lfs python3-dev`
+    * git + git-lfs to clone this repository
+    * CMake 3.19+, gcc
+    * Python 3.9+ (for python bindings, examples and some tools)
+
+### Build on local x86
+
+In the repository root build C++ code using one of two ways:
+1. Build manually:
+```
+mkdir build
+cd build
+cmake ..
+make -j
+```
+2. Set source & build paths for `build_release.sh` and run it.
+
+   **Important**: Before running `build_release.sh` set paths using one of the options:
+   1. Set paths in `~/.bashrc` (or equivalent shell login script), which will be useful when switching between cuvslam branches:
+      ```bash
+      export CUVSLAM_SRC_DIR=<path-to-cuvslam-src>
+      export CUVSLAM_DST_DIR=<path-to-cuvslam-build>
+      ```
+   2. Update SRC & DST paths in `build_release.sh`
+
+### Build on remote ARM
+
+Requires SSH access to the remote device.
+
+```bash
+./copy_to_remote.sh <jetson-host>
+ssh <jetson-host> 'export CUVSLAM_SRC_DIR=~/cuvslam/src CUVSLAM_DST_DIR=~/cuvslam/build && ~/cuvslam/src/build_release.sh'
+./copy_from_remote.sh <jetson-host>
+```
+
+### Enable rerun visualizer for C++ code
+
+1. Create virtual environment and install rerun SDK:
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install rerun-sdk==0.22.1
+   ```
+2. Specify virtual env with `CUVSLAM_TOOLS_PYENV` environment variable
+   (defaults to `.venv` in repository root).
+3. Update `build_release.sh` and set `USE_RERUN` to `ON`
+4. Run any tool from tools folder
+
+# FAQ
+
+**Q**: What Python versions are supported by PyCuVSLAM?
+
+**A**: Pre-built wheels are available for Python 3.10 (Ubuntu 22.04) and Python 3.12 or later (Ubuntu 24.04+).
+When built from source, PyCuVSLAM supports Python 3.9 and later.
+
+# Troubleshooting
+
+See [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+
+
+
+# Feedback
+
+Are you having problems running cuVSLAM or PyCuVSLAM? Do you have any suggestions? We'd love to hear your feedback in the [issues](https://github.com/nvidia-isaac/cuVSLAM/issues) tab.
+
+# License
+
+This project is licensed under the NVIDIA Community License, for details refer to the [LICENSE](LICENSE) file.
+
+# Citation
+
 If you find this work useful in your research, please consider citing:
 ```bibtex
 @article{korovko2025cuvslam,
-      title={cuVSLAM: CUDA accelerated visual odometry and mapping}, 
+      title={cuVSLAM: CUDA accelerated visual odometry and mapping},
       author={Alexander Korovko and Dmitry Slepichev and Alexander Efitorov and Aigul Dzhumamuratova and Viktor Kuznetsov and Hesam Rabeti and Joydeep Biswas and Soha Pouya},
       year={2025},
       eprint={2506.04359},
       archivePrefix={arXiv},
       primaryClass={cs.RO},
-      url={https://arxiv.org/abs/2506.04359}, 
+      url={https://arxiv.org/abs/2506.04359},
 }
 ```

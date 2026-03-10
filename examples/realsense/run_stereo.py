@@ -1,13 +1,17 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 #
-# Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-#
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
-#
+# NVIDIA software released under the NVIDIA Community License is intended to be used to enable
+# the further development of AI and robotics technologies. Such software has been designed, tested,
+# and optimized for use with NVIDIA hardware, and this License grants permission to use the software
+# solely with such hardware.
+# Subject to the terms of this License, NVIDIA confirms that you are free to commercially use,
+# modify, and distribute the software with NVIDIA hardware. NVIDIA does not claim ownership of any
+# outputs generated using the software or derivative works thereof. Any code contributions that you
+# share with NVIDIA are licensed to NVIDIA as feedback under this License and may be incorporated
+# in future releases without notice or attribution.
+# By using, reproducing, modifying, distributing, performing, or displaying any portion or element
+# of the software or derivative works thereof, you agree to be bound by this License.
+
 from typing import List, Optional
 
 import numpy as np
@@ -21,7 +25,7 @@ from visualizer import RerunVisualizer
 RESOLUTION = (640, 360)
 FPS = 30
 WARMUP_FRAMES = 60
-IMAGE_JITTER_THRESHOLD_MS = 35 * 1e6  # 35ms in nanoseconds
+IMAGE_JITTER_THRESHOLD_NS = 35 * 1e6  # 35ms in nanoseconds
 
 
 def main() -> None:
@@ -49,7 +53,7 @@ def main() -> None:
     # Get extrinsics and intrinsics
     left_profile = frames[0].profile.as_video_stream_profile()
     right_profile = frames[1].profile.as_video_stream_profile()
-    
+
     camera_params['left']['intrinsics'] = left_profile.intrinsics
     camera_params['right']['intrinsics'] = right_profile.intrinsics
     camera_params['right']['extrinsics'] = right_profile.get_extrinsics_to(
@@ -61,7 +65,7 @@ def main() -> None:
         async_sba=False,
         enable_final_landmarks_export=True,
         enable_observations_export=True,
-        horizontal_stereo_camera=True
+        rectified_stereo_camera=True
     )
 
     # Create rig using utility function
@@ -96,7 +100,7 @@ def main() -> None:
 
             left_frame = frames.get_infrared_frame(1)
             right_frame = frames.get_infrared_frame(2)
-            
+
             if not left_frame or not right_frame:
                 print("Warning: Failed to get frames")
                 continue
@@ -107,11 +111,11 @@ def main() -> None:
             # Check timestamp difference with previous frame
             if prev_timestamp is not None:
                 timestamp_diff = timestamp - prev_timestamp
-                if timestamp_diff > IMAGE_JITTER_THRESHOLD_MS:
+                if timestamp_diff > IMAGE_JITTER_THRESHOLD_NS:
                     print(
                         f"Warning: Camera stream message drop: timestamp gap "
                         f"({timestamp_diff/1e6:.2f} ms) exceeds threshold "
-                        f"{IMAGE_JITTER_THRESHOLD_MS/1e6:.2f} ms"
+                        f"{IMAGE_JITTER_THRESHOLD_NS/1e6:.2f} ms"
                     )
 
             # Store current timestamp for next iteration
@@ -126,11 +130,11 @@ def main() -> None:
             if frame_id > WARMUP_FRAMES:
                 # Track frame
                 odom_pose_estimate, _ = tracker.track(timestamp, images)
-                
+
                 if odom_pose_estimate.world_from_rig is None:
                     print("Warning: Pose tracking not valid")
                     continue
-                
+
                 odom_pose = odom_pose_estimate.world_from_rig.pose
                 trajectory.append(odom_pose.translation)
 

@@ -1,13 +1,17 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 #
-# Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-#
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
-#
+# NVIDIA software released under the NVIDIA Community License is intended to be used to enable
+# the further development of AI and robotics technologies. Such software has been designed, tested,
+# and optimized for use with NVIDIA hardware, and this License grants permission to use the software
+# solely with such hardware.
+# Subject to the terms of this License, NVIDIA confirms that you are free to commercially use,
+# modify, and distribute the software with NVIDIA hardware. NVIDIA does not claim ownership of any
+# outputs generated using the software or derivative works thereof. Any code contributions that you
+# share with NVIDIA are licensed to NVIDIA as feedback under this License and may be incorporated
+# in future releases without notice or attribution.
+# By using, reproducing, modifying, distributing, performing, or displaying any portion or element
+# of the software or derivative works thereof, you agree to be bound by this License.
+
 import os
 import threading
 import time
@@ -28,60 +32,60 @@ sequence_path = os.path.join(
 quaternion_to_rotation_matrix = lambda q: R.from_quat(q).as_matrix().tolist()
 
 # Lambda to multiply two quaternions [x, y, z, w] * [x, y, z, w]
-quaternion_multiply = lambda q1, q2: (R.from_quat(q1) * R.from_quat(q2)).as_quat().tolist()
+quaternion_multiply = lambda q1, q2: (R.from_quat(q1) * R.from_quat(q2)).as_quat()
 
 # Lambda to rotate a 3D vector using a 3x3 rotation matrix
-rotate_vector = lambda vector, rotation_matrix: R.from_matrix(rotation_matrix).apply(vector).tolist()
+rotate_vector = lambda vector, rotation_matrix: R.from_matrix(rotation_matrix).apply(vector)
 
 
 def combine_poses(initial_pose, relative_pose):
     """
     Combine initial pose with relative pose to get absolute pose.
-    
+
     Args:
         initial_pose: cuvslam.Pose object representing initial pose
         relative_pose: cuvslam.Pose object representing relative pose
-    
+
     Returns:
         cuvslam.Pose object representing combined absolute pose
     """
     # Get rotation matrix from initial pose quaternion
     rotation_matrix = quaternion_to_rotation_matrix(initial_pose.rotation)
-    
+
     # Rotate relative translation by initial pose rotation
     rotated_rel_t = rotate_vector(relative_pose.translation, rotation_matrix)
-    
+
     # Add initial translation
     absolute_translation = [
         initial_pose.translation[0] + rotated_rel_t[0],
         initial_pose.translation[1] + rotated_rel_t[1],
         initial_pose.translation[2] + rotated_rel_t[2]
     ]
-    
+
     # Multiply quaternions
     absolute_rotation = quaternion_multiply(initial_pose.rotation, relative_pose.rotation)
-    
+
     return cuvslam.Pose(translation=absolute_translation, rotation=absolute_rotation)
 
 
 def transform_landmarks(landmarks, initial_pose):
     """
     Transform landmarks by initial pose (rotation + translation).
-    
+
     Args:
         landmarks: list of 3D landmark coordinates
         initial_pose: cuvslam.Pose object representing initial pose
-    
+
     Returns:
         List of transformed 3D landmark coordinates
     """
     rotation_matrix = quaternion_to_rotation_matrix(initial_pose.rotation)
     transformed_landmarks = []
-    
+
     for landmark in landmarks:
         # Rotate landmark by initial pose rotation
         rotated_landmark = rotate_vector(landmark, rotation_matrix)
-        
+
         # Add initial translation
         transformed_landmark = [
             initial_pose.translation[0] + rotated_landmark[0],
@@ -89,7 +93,7 @@ def transform_landmarks(landmarks, initial_pose):
             initial_pose.translation[2] + rotated_landmark[2]
         ]
         transformed_landmarks.append(transformed_landmark)
-    
+
     return transformed_landmarks
 
 
@@ -134,9 +138,9 @@ rr.log("xyz", rr.Arrows3D(
     labels=['[x]', '[y]', '[z]']
 ), static=True)
 
-IDX = 700  # starting index of the sequence after localization
 SLAM_SYNC_MODE = False  # async slam thread is enabled
-max_wait_time = 20.0  # seconds
+IDX = 700  # starting index of the sequence after localization
+max_wait_time = 10.0  # seconds
 
 # Load KITTI dataset calibration and initilize cameras
 intrinsics = loadtxt(
@@ -157,7 +161,7 @@ cameras[1].rig_from_camera.translation[0] = -intrinsics[1][0][3] / intrinsics[1]
 cfg = cuvslam.Tracker.OdometryConfig(
     async_sba=False,
     enable_final_landmarks_export=True,
-    horizontal_stereo_camera=True
+    rectified_stereo_camera=True
 )
 s_cfg = cuvslam.Tracker.SlamConfig(sync_mode=SLAM_SYNC_MODE)
 tracker = cuvslam.Tracker(cuvslam.Rig(cameras), cfg, s_cfg)
@@ -202,7 +206,7 @@ if os.path.exists(trajectory_file) and os.path.exists(map_path):
 
 # If guess pose is not None, localize in map
 if os.path.exists(map_path) and (guess_pose is not None):
-    
+
     init_images = [
         asarray(Image.open(os.path.join(sequence_path, f'image_{cam}', f'{IDX:0>6}.png')))
         for cam in [0, 1]
@@ -212,20 +216,36 @@ if os.path.exists(map_path) and (guess_pose is not None):
     tracker.localize_in_map(map_path, guess_pose, init_images, loc_settings, localization_callback)
 
     wait_time = 0
-    # Wait for localization to complete with proper tracking, but only up to 10 seconds
-    while not localization_complete.wait(timeout=0.5) and wait_time < max_wait_time:
+    wait_timestamp_ns = timestamps[IDX]
+    # Wait for localization to complete with proper tracking, but only up to max_wait_time seconds
+    while not SLAM_SYNC_MODE and not localization_complete.wait(timeout=0.5) and wait_time < max_wait_time:
         print(f"Waiting for localization... timestamp: {wait_time}")
-        if wait_time // 5 == 0:
-            _, _ = tracker.track(timestamps[IDX], init_images)
+        # call track() every 0.5 seconds only for the first 5 seconds
+        if wait_time < 5.0:
+            # Increment timestamp as track() requires strictly increasing timestamps.
+            # Uses 1ms steps which won't reach the next real frame timestamp (KITTI timestamps are ~100ms apart).
+            # In the real application sequencial frames with actual timestamps should be fed in parallel with localization.
+            wait_timestamp_ns += 1_000_000
+            _, slam_pose = tracker.track(wait_timestamp_ns, init_images)
+            print(f"  slam_pose.t: {[f'{x:.3f}' for x in slam_pose.translation]}")
         wait_time += 0.5
     if not localization_complete.is_set():
         print(f"Localization did not complete within {max_wait_time} seconds")
-        
-# Set SLAM initial pose
+    IDX += 1
+
 if slam_initial_pose is not None:
-    tracker.set_slam_pose(slam_initial_pose)
-    print(f"Set SLAM pose to: {slam_initial_pose}")
-    time.sleep(1)
+    print(f"Localized pose: {slam_initial_pose}")
+    wait_time = 0
+    while not SLAM_SYNC_MODE and wait_time < max_wait_time:
+        time.sleep(0.5)
+        wait_timestamp_ns += 1_000_000
+        _, slam_pose = tracker.track(wait_timestamp_ns, init_images)
+        print(f"  slam_pose.t: {[f'{x:.3f}' for x in slam_pose.translation]}")
+        identity_t = all(abs(x) < 1e-6 for x in slam_pose.translation)
+        identity_r = all(abs(x) < 1e-6 for x in slam_pose.rotation[:3]) and abs(slam_pose.rotation[3] - 1.0) < 1e-6
+        if not (identity_t and identity_r):
+            break
+        wait_time += 0.5
 else:
     print("Warning: slam_initial_pose is None, set initial pose to zero, starting frame to 0, ignore map if exists")
     IDX = 0
@@ -238,6 +258,8 @@ loop_closure_poses = []
 
 # Track each frames in the dataset sequence
 for frame in range(IDX, len(timestamps)):
+    time.sleep(0.01) # sleep 10ms to let SLAM thread catch up
+
     # Load grayscale pixels as array for left and right absolute image paths
     images = [
         asarray(Image.open(os.path.join(sequence_path, f'image_{cam}', f'{frame:0>6}.png')))
@@ -246,7 +268,7 @@ for frame in range(IDX, len(timestamps)):
 
     # Do visual odometry and slam tracking
     odometry_pose_estimate, slam_pose = tracker.track(timestamps[frame], images)
-    
+
     if odometry_pose_estimate.world_from_rig is None:
         print(f"Warning: Failed to track frame {frame}")
         continue
@@ -260,7 +282,7 @@ for frame in range(IDX, len(timestamps)):
     # Get visualization data
     observations = tracker.get_last_observations(0)  # get observation from left camera
     landmarks = tracker.get_last_landmarks()
-    
+
     # Transform final landmarks by the initial pose
     raw_final_landmarks = list(tracker.get_final_landmarks().values())
     final_landmarks = transform_landmarks(raw_final_landmarks, slam_initial_pose)
@@ -277,13 +299,13 @@ for frame in range(IDX, len(timestamps)):
 
     # Get loop closure poses
     current_lc_poses = tracker.get_loop_closure_poses()
-    if (current_lc_poses and 
-        (not loop_closure_poses or 
+    if (current_lc_poses and
+        (not loop_closure_poses or
          not np_array_equal(current_lc_poses[-1].pose.translation, loop_closure_poses[-1]))):
-        loop_closure_poses.append(current_lc_poses[-1].pose.translation)        
+        loop_closure_poses.append(current_lc_poses[-1].pose.translation)
 
     # Send results to rerun for visualization
-    rr.set_time_sequence('frame', frame)
+    rr.set_time_nanos('timestamp', timestamps[frame])
     rr.log('trajectory', rr.LineStrips3D(trajectory))
     rr.log('trajectory_slam', rr.LineStrips3D(trajectory_slam))
     rr.log('final_landmarks', rr.Points3D(final_landmarks, radii=0.1))
@@ -314,23 +336,24 @@ for frame in range(IDX, len(timestamps)):
 
 print(f"Number of loop closure poses: {len(loop_closure_poses)}")
 
-# Save map and trajectory
-os.makedirs(map_path, exist_ok=True)
-print(f"Saving trajectory to {trajectory_file} of length {len(trajectory_tum)}")
-savetxt(trajectory_file, trajectory_tum)
+if guess_pose is None:
+    # Save map and trajectory
+    os.makedirs(map_path, exist_ok=True)
+    print(f"Saving trajectory to {trajectory_file} of length {len(trajectory_tum)}")
+    savetxt(trajectory_file, trajectory_tum)
 
-tracker.save_map(map_path, save_callback)
+    tracker.save_map(map_path, save_callback)
 
-# Wait for map saving to complete
-start_time = time.time()
-while not map_saved and (time.time() - start_time) < max_wait_time:
-    time.sleep(0.1)
-    print(f"Waiting for map saving to complete... {time.time() - start_time} seconds")
+    # Wait for map saving to complete
+    start_time = time.time()
+    while not map_saved and (time.time() - start_time) < max_wait_time:
+        time.sleep(0.1)
+        print(f"Waiting for map saving to complete... {time.time() - start_time} seconds")
 
-if map_saved:
-    print("Map saved successfully")
-else:
-    print("WARNING: Map saving may not have completed")
+    if map_saved:
+        print("Map saved successfully")
+    else:
+        print("WARNING: Map saving may not have completed")
 
 
 print("Cleaning up resources...")

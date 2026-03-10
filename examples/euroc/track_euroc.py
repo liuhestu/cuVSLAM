@@ -1,13 +1,17 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 #
-# Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-#
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
-#
+# NVIDIA software released under the NVIDIA Community License is intended to be used to enable
+# the further development of AI and robotics technologies. Such software has been designed, tested,
+# and optimized for use with NVIDIA hardware, and this License grants permission to use the software
+# solely with such hardware.
+# Subject to the terms of this License, NVIDIA confirms that you are free to commercially use,
+# modify, and distribute the software with NVIDIA hardware. NVIDIA does not claim ownership of any
+# outputs generated using the software or derivative works thereof. Any code contributions that you
+# share with NVIDIA are licensed to NVIDIA as feedback under this License and may be incorporated
+# in future releases without notice or attribution.
+# By using, reproducing, modifying, distributing, performing, or displaying any portion or element
+# of the software or derivative works thereof, you agree to be bound by this License.
+
 import os
 
 import numpy as np
@@ -37,43 +41,45 @@ rr.init("cuVSLAM Visualizer", spawn=True)
 rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Y_DOWN, static=True)
 
 # Setup rerun views
-rr.send_blueprint(
-    rrb.Blueprint(
-        rrb.TimePanel(state="collapsed"),
-        rrb.Horizontal(
-            column_shares=[0.5, 0.5],
-            contents=[
-                rrb.Vertical(contents=[
-                    rrb.Horizontal(contents=[
-                        rrb.Spatial2DView(origin='world/camera_0'),
-                        rrb.Spatial2DView(origin='world/camera_1')
-                    ]),
-                    rrb.Vertical(contents=[
-                        rrb.TimeSeriesView(
-                        name="IMU Acceleration",
-                        origin="world/imu/accel",
-                        overrides={
-                            "world/imu/accel/x": rr.SeriesLine.from_fields(color=[255, 0, 0]),
-                            "world/imu/accel/y": rr.SeriesLine.from_fields(color=[0, 255, 0]),
-                            "world/imu/accel/z": rr.SeriesLine.from_fields(color=[0, 0, 255]),
-                        },
-                    ),
-                    rrb.TimeSeriesView(
-                        name="IMU Angular Velocity",
-                        origin="world/imu/gyro",
-                        overrides={
-                            "world/imu/gyro/x": rr.SeriesLine.from_fields(color=[255, 0, 0]),
-                            "world/imu/gyro/y": rr.SeriesLine.from_fields(color=[0, 255, 0]),
-                            "world/imu/gyro/z": rr.SeriesLine.from_fields(color=[0, 0, 255]),
-                        },
-                    )
-                    ])
+blueprint = rrb.Blueprint(
+    rrb.TimePanel(state="collapsed"),
+    rrb.Horizontal(
+        column_shares=[0.5, 0.5],
+        contents=[
+            rrb.Vertical(contents=[
+                rrb.Horizontal(contents=[
+                    rrb.Spatial2DView(origin='world/camera_0'),
+                    rrb.Spatial2DView(origin='world/camera_1')
                 ]),
-                rrb.Spatial3DView(origin='world')
-            ]
-        )
+                rrb.Vertical(contents=[
+                    rrb.TimeSeriesView(
+                    name="IMU Acceleration",
+                    origin="world/imu/accel",
+                    overrides={
+                        "world/imu/accel/x": rr.SeriesLine.from_fields(color=[255, 0, 0]),
+                        "world/imu/accel/y": rr.SeriesLine.from_fields(color=[0, 255, 0]),
+                        "world/imu/accel/z": rr.SeriesLine.from_fields(color=[0, 0, 255]),
+                    },
+                ),
+                rrb.TimeSeriesView(
+                    name="IMU Angular Velocity",
+                    origin="world/imu/gyro",
+                    overrides={
+                        "world/imu/gyro/x": rr.SeriesLine.from_fields(color=[255, 0, 0]),
+                        "world/imu/gyro/y": rr.SeriesLine.from_fields(color=[0, 255, 0]),
+                        "world/imu/gyro/z": rr.SeriesLine.from_fields(color=[0, 0, 255]),
+                    },
+                )
+                ])
+            ]),
+            rrb.Spatial3DView(origin='world')
+        ]
     )
 )
+rr.send_blueprint(blueprint)
+blueprint_path = os.path.join(os.path.dirname(__file__), "cpp", "euroc_blueprint")
+# Uncomment the next line to regenerate the blueprint file for the C++ example
+# blueprint.save(blueprint_path)
 
 # Available tracking modes:
 # 0: Multicamera - Visual tracking using stereo camera (can be extended to multiple stereo cameras)
@@ -81,14 +87,14 @@ rr.send_blueprint(
 # 2: RGBD - Visual tracking using monocular camera + depth (supports grayscale input)
 # 3: Mono - Visual tracking using monocular camera (without scale, accurate rotation only)
 
-euroc_tracking_mode = cuvslam.Tracker.OdometryMode(1)
+euroc_tracking_mode = cuvslam.Tracker.OdometryMode.Inertial
 
 # Configure tracker
 cfg = cuvslam.Tracker.OdometryConfig(
     async_sba=False,
     enable_observations_export=True,
     enable_final_landmarks_export=True,
-    horizontal_stereo_camera=False,
+    rectified_stereo_camera=False,
     odometry_mode=euroc_tracking_mode
 )
 
@@ -112,7 +118,7 @@ odom_trajectory = []
 
 for frame_metadata in frames_metadata:
     timestamp = frame_metadata['timestamp']
-    
+
     if frame_metadata['type'] == 'imu':
         accel_data = frame_metadata['accel']
         gyro_data = frame_metadata['gyro']
@@ -185,7 +191,7 @@ for frame_metadata in frames_metadata:
         rr.Points2D(positions=points, colors=colors, radii=5.0),
         rr.Image(images[1]).compress(jpeg_quality=80)
     )
-    
+
     if gravity is not None:
         rr.log(
             "world/camera_0/gravity",

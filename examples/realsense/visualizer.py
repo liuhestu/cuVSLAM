@@ -1,13 +1,17 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 #
-# Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-#
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
-#
+# NVIDIA software released under the NVIDIA Community License is intended to be used to enable
+# the further development of AI and robotics technologies. Such software has been designed, tested,
+# and optimized for use with NVIDIA hardware, and this License grants permission to use the software
+# solely with such hardware.
+# Subject to the terms of this License, NVIDIA confirms that you are free to commercially use,
+# modify, and distribute the software with NVIDIA hardware. NVIDIA does not claim ownership of any
+# outputs generated using the software or derivative works thereof. Any code contributions that you
+# share with NVIDIA are licensed to NVIDIA as feedback under this License and may be incorporated
+# in future releases without notice or attribution.
+# By using, reproducing, modifying, distributing, performing, or displaying any portion or element
+# of the software or derivative works thereof, you agree to be bound by this License.
+
 from typing import List, Optional
 
 import numpy as np
@@ -25,17 +29,17 @@ GRAVITY_ARROW_SCALE = 0.02
 
 class RerunVisualizer:
     """Rerun-based visualizer for cuVSLAM tracking results."""
-    
+
     def __init__(self, num_viz_cameras: int = DEFAULT_NUM_VIZ_CAMERAS) -> None:
         """Initialize rerun visualizer.
-        
+
         Args:
             num_viz_cameras: Number of cameras to visualize
         """
         self.num_viz_cameras = num_viz_cameras
         rr.init("cuVSLAM Visualizer", spawn=True)
         rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Y_DOWN, static=True)
-        
+
         # Set up the visualization layout
         self._setup_blueprint()
         self.track_colors = {}
@@ -63,7 +67,7 @@ class RerunVisualizer:
         self, rotation_quat: np.ndarray, translation: np.ndarray
     ) -> None:
         """Log rig pose to Rerun.
-        
+
         Args:
             rotation_quat: Rotation quaternion
             translation: Translation vector
@@ -84,7 +88,7 @@ class RerunVisualizer:
         camera_name: str
     ) -> None:
         """Log 2D observations for a specific camera with consistent colors.
-        
+
         Args:
             observations_main_cam: List of observations
             image: Camera image
@@ -118,7 +122,7 @@ class RerunVisualizer:
 
     def _log_gravity(self, gravity: np.ndarray) -> None:
         """Log gravity vector to Rerun.
-        
+
         Args:
             gravity: Gravity vector
         """
@@ -142,7 +146,7 @@ class RerunVisualizer:
         gravity: Optional[np.ndarray] = None
     ) -> None:
         """Visualize current frame state using Rerun.
-        
+
         Args:
             frame_id: Current frame ID
             images: List of camera images
@@ -156,13 +160,13 @@ class RerunVisualizer:
         rr.log("world/trajectory", rr.LineStrips3D(trajectory), static=True)
 
         self._log_rig_pose(pose.rotation, pose.translation)
-        
+
         for i in range(self.num_viz_cameras):
             self._log_observations(
                 observations_main_cam[i], images[i], f"camera_{i}"
             )
-            
+
         if gravity is not None:
             self._log_gravity(gravity)
-            
+
         rr.log("world/timestamp", rr.TextLog(str(timestamp)))

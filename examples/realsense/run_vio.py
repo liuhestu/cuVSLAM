@@ -1,16 +1,19 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 #
-# Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-#
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
-#
+# NVIDIA software released under the NVIDIA Community License is intended to be used to enable
+# the further development of AI and robotics technologies. Such software has been designed, tested,
+# and optimized for use with NVIDIA hardware, and this License grants permission to use the software
+# solely with such hardware.
+# Subject to the terms of this License, NVIDIA confirms that you are free to commercially use,
+# modify, and distribute the software with NVIDIA hardware. NVIDIA does not claim ownership of any
+# outputs generated using the software or derivative works thereof. Any code contributions that you
+# share with NVIDIA are licensed to NVIDIA as feedback under this License and may be incorporated
+# in future releases without notice or attribution.
+# By using, reproducing, modifying, distributing, performing, or displaying any portion or element
+# of the software or derivative works thereof, you agree to be bound by this License.
+
 import queue
 import threading
-from copy import deepcopy
 from typing import List, Optional
 
 import numpy as np
@@ -25,20 +28,20 @@ RESOLUTION = (640, 360)
 FPS = 30
 IMU_FREQUENCY_ACCEL = 200
 IMU_FREQUENCY_GYRO = 200
-IMAGE_JITTER_THRESHOLD_MS = 35 * 1e6  # 35ms in nanoseconds
-IMU_JITTER_THRESHOLD_MS = 6 * 1e6  # 6ms in nanoseconds
+IMAGE_JITTER_THRESHOLD_NS = 35 * 1e6  # 35ms in nanoseconds
+IMU_JITTER_THRESHOLD_NS = 6 * 1e6  # 6ms in nanoseconds
 
 
 class ThreadWithTimestamp:
     """Helper class to manage timestamps between camera and IMU threads."""
-    
+
     def __init__(
         self,
         low_rate_threshold_ns: int,
         high_rate_threshold_ns: int
     ) -> None:
         """Initialize timestamp tracker.
-        
+
         Args:
             low_rate_threshold_ns: Threshold for low-rate (camera) stream
             high_rate_threshold_ns: Threshold for high-rate (IMU) stream
@@ -56,61 +59,68 @@ def imu_thread(
     thread_with_timestamp: ThreadWithTimestamp,
     motion_pipe: rs.pipeline
 ) -> None:
-    """IMU processing thread.
-    
+    """IMU processing thread - optimized for 200Hz on aarch64.
+
     Args:
         tracker: cuVSLAM tracker instance
         q: Queue for communication with main thread
         thread_with_timestamp: Timestamp management object
         motion_pipe: RealSense motion pipeline
     """
+    # Pre-allocate buffers outside the loop for performance
+    imu_measurement = vslam.ImuMeasurement()
+    accel_buf = np.zeros(3, dtype=np.float32)
+    gyro_buf = np.zeros(3, dtype=np.float32)
+
+    # Cache threshold for fast access
+    high_rate_threshold = thread_with_timestamp.high_rate_threshold_ns
+    prev_timestamp = None
+    drop_count = 0
+
     try:
         while True:
-            imu_measurement = vslam.ImuMeasurement()
             imu_frames = motion_pipe.wait_for_frames()
             current_timestamp = int(imu_frames[0].timestamp * 1e6)
 
-            # Check timestamp consistency with camera thread
-            if (thread_with_timestamp.last_low_rate_timestamp is not None and
-                    current_timestamp < thread_with_timestamp.last_low_rate_timestamp):
-                print(
-                    f"Warning: IMU stream timestamp is earlier than camera "
-                    f"stream ({current_timestamp} < "
-                    f"{thread_with_timestamp.last_low_rate_timestamp})"
-                )
+            # Quick timestamp validation
+            last_cam_ts = thread_with_timestamp.last_low_rate_timestamp
+            if last_cam_ts is not None and current_timestamp < last_cam_ts:
                 continue
 
-            # Check for timestamp gaps in IMU stream
-            timestamp_diff = 0
-            if thread_with_timestamp.prev_high_rate_timestamp is not None:
-                timestamp_diff = (
-                    current_timestamp - thread_with_timestamp.prev_high_rate_timestamp
-                )
-                if timestamp_diff > thread_with_timestamp.high_rate_threshold_ns:
-                    print(
-                        f"Warning: IMU stream message drop: timestamp gap "
-                        f"({timestamp_diff/1e6:.2f} ms) exceeds threshold "
-                        f"{thread_with_timestamp.high_rate_threshold_ns/1e6:.2f} ms"
-                    )
-                elif timestamp_diff < 0:
-                    print("Warning: IMU messages are not sequential")
+            # Calculate timestamp diff
+            if prev_timestamp is not None:
+                timestamp_diff = current_timestamp - prev_timestamp
+                if timestamp_diff < 0:
+                    continue
+                if timestamp_diff > high_rate_threshold:
+                    drop_count += 1
+                    # Only print every 100 drops to reduce I/O overhead
+                    if drop_count % 100 == 1:
+                        print(f"Warning: IMU drops detected ({drop_count} total, last gap: {timestamp_diff/1e6:.2f} ms)")
+            else:
+                timestamp_diff = 1  # First frame
 
-            if timestamp_diff < 0:
-                continue
+            prev_timestamp = current_timestamp
+            thread_with_timestamp.prev_high_rate_timestamp = current_timestamp
 
-            thread_with_timestamp.prev_high_rate_timestamp = deepcopy(
-                current_timestamp
-            )
-            
-            # Populate IMU measurement
+            # Get motion data directly - minimal overhead
+            accel_data = imu_frames[0].as_motion_frame().get_motion_data()
+            gyro_data = imu_frames[1].as_motion_frame().get_motion_data()
+
+            # Reuse pre-allocated buffers
+            accel_buf[0] = accel_data.x
+            accel_buf[1] = accel_data.y
+            accel_buf[2] = accel_data.z
+            gyro_buf[0] = gyro_data.x
+            gyro_buf[1] = gyro_data.y
+            gyro_buf[2] = gyro_data.z
+
+            # Update measurement in-place
             imu_measurement.timestamp_ns = current_timestamp
-            accel_data = np.frombuffer(imu_frames[0].get_data(), dtype=np.float32)
-            gyro_data = np.frombuffer(imu_frames[1].get_data(), dtype=np.float32)
-            imu_measurement.linear_accelerations = accel_data[:3]
-            imu_measurement.angular_velocities = gyro_data[:3]
+            imu_measurement.linear_accelerations = accel_buf
+            imu_measurement.angular_velocities = gyro_buf
 
-            if timestamp_diff > 0:
-                tracker.register_imu_measurement(0, imu_measurement)
+            tracker.register_imu_measurement(0, imu_measurement)
     except Exception as e:
         print(f"IMU thread error: {e}")
 
@@ -122,7 +132,7 @@ def camera_thread(
     ir_pipe: rs.pipeline
 ) -> None:
     """Camera processing thread.
-    
+
     Args:
         tracker: cuVSLAM tracker instance
         q: Queue for communication with main thread
@@ -148,20 +158,21 @@ def camera_thread(
                         f"{thread_with_timestamp.low_rate_threshold_ns/1e6:.2f} ms"
                     )
 
-            thread_with_timestamp.prev_low_rate_timestamp = deepcopy(
-                current_timestamp
-            )
-            
+            thread_with_timestamp.prev_low_rate_timestamp = current_timestamp
+
             images = (
                 np.asanyarray(ir_left_frame.get_data()),
                 np.asanyarray(ir_right_frame.get_data())
             )
 
             odom_pose_estimate, _ = tracker.track(current_timestamp, images)
-            odom_pose = odom_pose_estimate.world_from_rig.pose
+            odom_pose_with_cov = odom_pose_estimate.world_from_rig
+            if odom_pose_with_cov is None:
+                print(f"Tracking failed at frame {current_timestamp}")
+                continue
 
             # Put result in queue for main thread
-            q.put([current_timestamp, odom_pose, images])
+            q.put([current_timestamp, odom_pose_with_cov.pose, images])
             thread_with_timestamp.last_low_rate_timestamp = current_timestamp
     except Exception as e:
         print(f"Camera thread error: {e}")
@@ -169,7 +180,7 @@ def camera_thread(
 
 def setup_camera_parameters() -> dict:
     """Set up camera parameters by starting pipeline briefly.
-    
+
     Returns:
         Dictionary containing camera parameters
     """
@@ -188,7 +199,7 @@ def setup_camera_parameters() -> dict:
     config.enable_stream(rs.stream.gyro, rs.format.motion_xyz32f, IMU_FREQUENCY_GYRO)
 
     # Start pipeline to get intrinsics and extrinsics
-    profile = pipeline.start(config)
+    pipeline.start(config)
     frames = pipeline.wait_for_frames()
     pipeline.stop()
 
@@ -221,9 +232,10 @@ def main() -> None:
     cfg = vslam.Tracker.OdometryConfig(
         async_sba=False,
         enable_final_landmarks_export=True,
+        enable_observations_export=True,
         debug_imu_mode=False,
         odometry_mode=vslam.Tracker.OdometryMode.Inertial,
-        horizontal_stereo_camera=True
+        rectified_stereo_camera=True
     )
 
     # Create rig using utility function
@@ -271,7 +283,7 @@ def main() -> None:
     q = queue.Queue()
     visualizer = RerunVisualizer()
     thread_with_timestamp = ThreadWithTimestamp(
-        IMAGE_JITTER_THRESHOLD_MS, IMU_JITTER_THRESHOLD_MS
+        IMAGE_JITTER_THRESHOLD_NS, IMU_JITTER_THRESHOLD_NS
     )
 
     # Start threads

@@ -1,13 +1,17 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 #
-# Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-#
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
-#
+# NVIDIA software released under the NVIDIA Community License is intended to be used to enable
+# the further development of AI and robotics technologies. Such software has been designed, tested,
+# and optimized for use with NVIDIA hardware, and this License grants permission to use the software
+# solely with such hardware.
+# Subject to the terms of this License, NVIDIA confirms that you are free to commercially use,
+# modify, and distribute the software with NVIDIA hardware. NVIDIA does not claim ownership of any
+# outputs generated using the software or derivative works thereof. Any code contributions that you
+# share with NVIDIA are licensed to NVIDIA as feedback under this License and may be incorporated
+# in future releases without notice or attribution.
+# By using, reproducing, modifying, distributing, performing, or displaying any portion or element
+# of the software or derivative works thereof, you agree to be bound by this License.
+
 import cuvslam as vslam
 import os
 import json
@@ -21,20 +25,10 @@ from PIL import Image
 # generate pseudo-random colour from integer identifier for visualization
 def color_from_id(identifier): return [(identifier * 17) % 256, (identifier * 31) % 256, (identifier * 47) % 256]
 
-import tartanair as ta
-
-# Initialize TartanAir.
-tartanair_data_root = 'datasets/tartan_ground/'
-ta.init(tartanair_data_root)
-
 CAMERA_LIST = ['lcam_front', 'rcam_front', 'lcam_back', 'rcam_back', 'lcam_left', 'rcam_left', 'lcam_right',  'rcam_right', 'lcam_top', 'rcam_top', 'lcam_bottom', 'rcam_bottom']
 
-# Create iterator.
-ta_iterator = ta.iterator(env = ['OldTownFall'],
-                        trajectory_id = ['Pose2000'],
-                        difficulty = 'ground',
-                        modality = 'image',
-                        camera_name = CAMERA_LIST)
+data_path = 'dataset/tartan_ground/OldTownFall/Data_anymal/P2000'
+num_frames = len(os.listdir(os.path.join(data_path, f'image_{CAMERA_LIST[0]}')))
 
 
 ### setup rerun visualizer
@@ -59,7 +53,7 @@ rr.send_blueprint(rrb.Blueprint(rrb.TimePanel(state="collapsed"),
                                                       rrb.Spatial2DView(origin='car/cam10',  name='bottom-stereo_left'),
                                                       rrb.Spatial2DView(origin='car/cam11',  name='bottom-stereo_right')])
                                         ]
-                                    ), 
+                                    ),
                                 ),
                             make_active=True)
 # setup coordinate basis for root, cuvslam uses right-hand system with  X-right, Y-down, Z-forward
@@ -72,23 +66,21 @@ cameras = read_stereo_edex('tartan_ground.edex')
 rig = vslam.Rig()
 rig.cameras = cameras
 
-cfg = vslam.Tracker.OdometryConfig(enable_final_landmarks_export = True, horizontal_stereo_camera=True)
+cfg = vslam.Tracker.OdometryConfig(enable_final_landmarks_export = True, rectified_stereo_camera=True)
 
 tracker = vslam.Tracker(rig, cfg)
 
 trajectory = []
 
 # Process each frame
-frame_id = 0
-while True:
-    try:
-        v = next(ta_iterator)
-    except StopIteration:
-        print(f"Iterator exhausted at frame {frame_id}")
-        break
-    
+for frame_id in range(num_frames):
     timestamp = frame_id
-    images = [np.asarray(v[cnt]['image']) for cnt in CAMERA_LIST]
+    try:
+        images = [np.asarray(Image.open(os.path.join(data_path, f'image_{cam}', f'{frame_id:06d}_{cam}.png')))
+                  for cam in CAMERA_LIST]
+    except FileNotFoundError as e:
+        print(f"Error: Missing image file for frame {frame_id}: {e}")
+        continue
     # do multicamera visual tracking
     odom_pose_estimate, _ = tracker.track(timestamp, images)
 
@@ -123,7 +115,7 @@ while True:
 
         # show only even cameras in 3D world
         if not i%2:
-            rr.log('car/cam%s' % i, rr.Transform3D(translation=cameras[i].rig_from_camera.translation, 
+            rr.log('car/cam%s' % i, rr.Transform3D(translation=cameras[i].rig_from_camera.translation,
                                                         rotation=rr.Quaternion(xyzw=cameras[i].rig_from_camera.rotation),
                                                         from_parent=False))
             rr.log('car/cam%s' % i, rr.Pinhole(image_plane_distance=1.,
@@ -131,5 +123,3 @@ while True:
                                                                         [0, cameras[i].focal[1], cameras[i].principal[1]],
                                                                         [0, 0, 1]]),
                                             width=cameras[i].size[0], height=cameras[i].size[1]))
-    
-    frame_id += 1

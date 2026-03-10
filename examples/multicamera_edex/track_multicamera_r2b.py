@@ -1,13 +1,17 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 #
-# Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-#
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
-#
+# NVIDIA software released under the NVIDIA Community License is intended to be used to enable
+# the further development of AI and robotics technologies. Such software has been designed, tested,
+# and optimized for use with NVIDIA hardware, and this License grants permission to use the software
+# solely with such hardware.
+# Subject to the terms of this License, NVIDIA confirms that you are free to commercially use,
+# modify, and distribute the software with NVIDIA hardware. NVIDIA does not claim ownership of any
+# outputs generated using the software or derivative works thereof. Any code contributions that you
+# share with NVIDIA are licensed to NVIDIA as feedback under this License and may be incorporated
+# in future releases without notice or attribution.
+# By using, reproducing, modifying, distributing, performing, or displaying any portion or element
+# of the software or derivative works thereof, you agree to be bound by this License.
+
 import cuvslam as vslam
 import os
 import json
@@ -39,18 +43,18 @@ rr.send_blueprint(rrb.Blueprint(rrb.TimePanel(state="collapsed"),
                                                       rrb.Spatial2DView(origin='car/cam6', name='right-stereo_left'),
                                                       rrb.Spatial2DView(origin='car/cam7',  name='right-stereo_right')])
                                         ]
-                                    ), 
+                                    ),
                                 ),
                             make_active=True)
 # setup coordinate basis for root, cuvslam uses right-hand system with  X-right, Y-down, Z-forward
 rr.log("/", rr.ViewCoordinates.RIGHT_HAND_Y_DOWN, static=True)
 
 # Load frame metadata
-with open(os.path.join('datasets/r2b_galileo_edex/frame_metadata.jsonl'), 'r') as f:
+with open(os.path.join('dataset/r2b_galileo_edex/frame_metadata.jsonl'), 'r') as f:
     frames_metadata = [json.loads(i) for i in f.readlines()]
 
 # Load camera configuration from EDEX file
-cameras = read_stereo_edex('datasets/r2b_galileo_edex/stereo.edex')
+cameras = read_stereo_edex('dataset/r2b_galileo_edex/stereo.edex')
 
 # Set up VSLAM rig and tracker
 rig = vslam.Rig()
@@ -65,7 +69,7 @@ trajectory = []
 # Process each frame
 for frame_id, frame in enumerate(frames_metadata):
     timestamp = max([i['timestamp'] for i in frame['cams']])
-    images = [np.asarray(Image.open(os.path.join('datasets', 'r2b_galileo_edex', i['filename']))) for i in frame['cams']]
+    images = [np.asarray(Image.open(os.path.join('dataset', 'r2b_galileo_edex', i['filename']))) for i in frame['cams']]
     # do multicamera visual tracking
     odom_pose_estimate, _ = tracker.track(timestamp, images)
     if odom_pose_estimate.world_from_rig is None:
@@ -98,7 +102,7 @@ for frame_id, frame in enumerate(frames_metadata):
 
         # show only even cameras in 3D world
         if not i%2:
-            rr.log('car/cam%s' % i, rr.Transform3D(translation=cameras[i].rig_from_camera.translation, 
+            rr.log('car/cam%s' % i, rr.Transform3D(translation=cameras[i].rig_from_camera.translation,
                                                         rotation=rr.Quaternion(xyzw=cameras[i].rig_from_camera.rotation),
                                                         from_parent=False))
             rr.log('car/cam%s' % i, rr.Pinhole(image_plane_distance=1.,

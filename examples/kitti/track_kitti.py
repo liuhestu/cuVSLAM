@@ -1,13 +1,17 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 #
-# Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-#
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
-#
+# NVIDIA software released under the NVIDIA Community License is intended to be used to enable
+# the further development of AI and robotics technologies. Such software has been designed, tested,
+# and optimized for use with NVIDIA hardware, and this License grants permission to use the software
+# solely with such hardware.
+# Subject to the terms of this License, NVIDIA confirms that you are free to commercially use,
+# modify, and distribute the software with NVIDIA hardware. NVIDIA does not claim ownership of any
+# outputs generated using the software or derivative works thereof. Any code contributions that you
+# share with NVIDIA are licensed to NVIDIA as feedback under this License and may be incorporated
+# in future releases without notice or attribution.
+# By using, reproducing, modifying, distributing, performing, or displaying any portion or element
+# of the software or derivative works thereof, you agree to be bound by this License.
+
 import os
 from numpy import loadtxt, asarray
 from PIL import Image
@@ -22,7 +26,7 @@ sequence_path = os.path.join(
 )
 
 # Generate pseudo-random colour from integer identifier for visualization
-def color_from_id(identifier): 
+def color_from_id(identifier):
     return [(identifier * 17) % 256, (identifier * 31) % 256, (identifier * 47) % 256]
 
 # Setup rerun visualizer
@@ -66,7 +70,7 @@ cameras[1].rig_from_camera.translation[0] = -intrinsics[1][0][3] / intrinsics[1]
 cfg = cuvslam.Tracker.OdometryConfig(
     async_sba=False,
     enable_final_landmarks_export=True,
-    horizontal_stereo_camera=True
+    rectified_stereo_camera=True
 )
 tracker = cuvslam.Tracker(cuvslam.Rig(cameras), cfg)
 

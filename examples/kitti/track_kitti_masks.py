@@ -1,13 +1,17 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 #
-# Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-#
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
-#
+# NVIDIA software released under the NVIDIA Community License is intended to be used to enable
+# the further development of AI and robotics technologies. Such software has been designed, tested,
+# and optimized for use with NVIDIA hardware, and this License grants permission to use the software
+# solely with such hardware.
+# Subject to the terms of this License, NVIDIA confirms that you are free to commercially use,
+# modify, and distribute the software with NVIDIA hardware. NVIDIA does not claim ownership of any
+# outputs generated using the software or derivative works thereof. Any code contributions that you
+# share with NVIDIA are licensed to NVIDIA as feedback under this License and may be incorporated
+# in future releases without notice or attribution.
+# By using, reproducing, modifying, distributing, performing, or displaying any portion or element
+# of the software or derivative works thereof, you agree to be bound by this License.
+
 import os
 from numpy import loadtxt
 import rerun as rr
@@ -26,7 +30,12 @@ sequence_path = os.path.join(
 
 # Load segmentation model to GPU
 print("Loading segmentation model...")
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if not torch.cuda.is_available():
+    raise RuntimeError(
+        "CUDA is not available for PyTorch. This example requires a system with a CUDA-capable NVIDIA GPU. "
+        "Check your PyTorch installation with: python3 -c \"import torch; print(torch.cuda.is_available())\""
+    )
+device = torch.device("cuda")
 print(f"Using device: {device}")
 
 processor = SegformerImageProcessor.from_pretrained("nvidia/segformer-b0-finetuned-ade-512-512")
@@ -83,7 +92,7 @@ cameras[1].rig_from_camera.translation[0] = -intrinsics[1][0][3] / intrinsics[1]
 cfg = cuvslam.Tracker.OdometryConfig(
     async_sba=False,
     enable_final_landmarks_export=True,
-    horizontal_stereo_camera=True
+    rectified_stereo_camera=True
 )
 tracker = cuvslam.Tracker(cuvslam.Rig(cameras), cfg)
 
@@ -102,7 +111,7 @@ for frame in range(len(timestamps)):
         for cam in [0, 1]
     ]
     images_gpu = []
-    
+
     for path in image_paths:
         # Read image directly as tensor and move to GPU
         img_tensor = torchvision.io.read_image(path, mode=torchvision.io.ImageReadMode.UNCHANGED).to(device)
@@ -112,18 +121,18 @@ for frame in range(len(timestamps)):
         # Reshape from (C, H, W) to (H, W, C) for track method
         img_tensor = img_tensor.permute(1, 2, 0)
         images_gpu.append(img_tensor)
-    
+
     # For segmentation, we still need PIL format for the processor
     left_image_pil = Image.open(image_paths[0])
     if left_image_pil.mode != 'RGB':
         left_image_pil = left_image_pil.convert('RGB')
-    
+
     # Process image for segmentation
     inputs = processor(images=left_image_pil, return_tensors="pt").to(device)
     with torch.no_grad():
         outputs = seg_model(**inputs)
         logits = outputs.logits
-    
+
     # Upsample logits to original image size
     upsampled_logits = torch.nn.functional.interpolate(
         logits,
@@ -131,21 +140,21 @@ for frame in range(len(timestamps)):
         mode="bilinear",
         align_corners=False,
     )
-    
+
     # Get predicted segmentation map and create binary mask for cars (keep on GPU)
     pred_seg = upsampled_logits.argmax(dim=1)[0]
     car_class_id = 20  # Car class in ADE20K dataset
     bin_mask_tensor = (pred_seg == car_class_id).to(torch.uint8) * 255
-    
+
     # Apply temporal smoothing: if pixel was non-zero in previous frame, keep it as 255
     if prev_bin_mask_tensor is not None:
         current_bin_mask_tensor = torch.where(prev_bin_mask_tensor > 0, 255, bin_mask_tensor)
     else:
         current_bin_mask_tensor = bin_mask_tensor
-    
+
     # Store current mask for next iteration
     prev_bin_mask_tensor = bin_mask_tensor.clone()
-    
+
     # Create mask tensors for both cameras
     masks_gpu = [current_bin_mask_tensor, torch.zeros_like(current_bin_mask_tensor, dtype=torch.uint8)]
 

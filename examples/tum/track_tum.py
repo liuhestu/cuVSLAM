@@ -1,13 +1,17 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 #
-# Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-#
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
-#
+# NVIDIA software released under the NVIDIA Community License is intended to be used to enable
+# the further development of AI and robotics technologies. Such software has been designed, tested,
+# and optimized for use with NVIDIA hardware, and this License grants permission to use the software
+# solely with such hardware.
+# Subject to the terms of this License, NVIDIA confirms that you are free to commercially use,
+# modify, and distribute the software with NVIDIA hardware. NVIDIA does not claim ownership of any
+# outputs generated using the software or derivative works thereof. Any code contributions that you
+# share with NVIDIA are licensed to NVIDIA as feedback under this License and may be incorporated
+# in future releases without notice or attribution.
+# By using, reproducing, modifying, distributing, performing, or displaying any portion or element
+# of the software or derivative works thereof, you agree to be bound by this License.
+
 import os
 import yaml
 
@@ -34,7 +38,7 @@ def color_from_id(identifier):
     ]
 
 # Constants
-IMAGE_JITTER_THRESHOLD_MS = 40 * 1e6  # 40ms in nanoseconds
+IMAGE_JITTER_THRESHOLD_NS = 40 * 1e6  # 40ms in nanoseconds
 
 # Setup rerun visualizer
 rr.init('tum_dataset', strict=True, spawn=True)
@@ -104,31 +108,31 @@ trajectory = []
 
 # Process each matched RGB-D pair
 for rgb_time, rgb_path, depth_path in rgbd_pairs:
-    color_frame = load_frame(rgb_path)
-    depth_frame = load_frame(depth_path)
-    
-    if color_frame is None or depth_frame is None:
-        print(f"Warning: Failed to read image files: {rgb_path} or {depth_path}")
+    try:
+        color_frame = load_frame(rgb_path)
+        depth_frame = load_frame(depth_path)
+    except Exception as e:
+        print(f"Warning: Failed to read image files: {rgb_path} or {depth_path}: {e}")
         continue
-    
+
     # Convert timestamp to nanoseconds for tracker
     timestamp = int(rgb_time * 1e9)
-    
+
     # Check timestamp difference with previous frame
     if prev_timestamp is not None:
         timestamp_diff = timestamp - prev_timestamp
-        if timestamp_diff > IMAGE_JITTER_THRESHOLD_MS:
+        if timestamp_diff > IMAGE_JITTER_THRESHOLD_NS:
             print(
                 f"Warning: Camera stream message delayed: timestamp gap "
                 f"({timestamp_diff/1e6:.2f} ms) exceeds threshold "
-                f"{IMAGE_JITTER_THRESHOLD_MS/1e6:.2f} ms"
+                f"{IMAGE_JITTER_THRESHOLD_NS/1e6:.2f} ms"
             )
-    
+
     # Track frame
     odom_pose_estimate, _ = tracker.track(
         timestamp, images=[color_frame], depths=[depth_frame]
     )
-    
+
     if odom_pose_estimate.world_from_rig is None:
         print(f"Warning: Failed to track frame {frame_id}")
         continue
@@ -136,14 +140,14 @@ for rgb_time, rgb_path, depth_path in rgbd_pairs:
     # Get current pose and observations for the main camera and gravity in rig frame
     odom_pose = odom_pose_estimate.world_from_rig.pose
     trajectory.append(odom_pose.translation)
-    
+
     # Get observations
     observations = [tracker.get_last_observations(0)]
-    
+
     # Extract observation points and colors
     obs_uv = [[o.u, o.v] for o in observations[0]]
     obs_colors = [color_from_id(o.id) for o in observations[0]]
-    
+
     # Log visualization data
     rr.set_time_sequence('frame', frame_id)
     rr.log('trajectory', rr.LineStrips3D(trajectory), static=True)
@@ -159,7 +163,7 @@ for rgb_time, rgb_path, depth_path in rgbd_pairs:
             colors=[[255, 0, 0], [0, 255, 0], [0, 0, 255]]  # RGB for XYZ axes
         )
     )
-    
+
     # Log RGB and depth images with observations
     rr.log('world/camera/image', rr.Image(color_frame).compress(jpeg_quality=80))
     rr.log(
@@ -171,8 +175,7 @@ for rgb_time, rgb_path, depth_path in rgbd_pairs:
         'world/camera/depth/observations',
         rr.Points2D(obs_uv, radii=5, colors=obs_colors)
     )
-    
+
     # Update for next iteration
     frame_id += 1
     prev_timestamp = timestamp
-

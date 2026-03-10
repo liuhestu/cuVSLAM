@@ -1,13 +1,17 @@
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 #
-# Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-#
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
-#
+# NVIDIA software released under the NVIDIA Community License is intended to be used to enable
+# the further development of AI and robotics technologies. Such software has been designed, tested,
+# and optimized for use with NVIDIA hardware, and this License grants permission to use the software
+# solely with such hardware.
+# Subject to the terms of this License, NVIDIA confirms that you are free to commercially use,
+# modify, and distribute the software with NVIDIA hardware. NVIDIA does not claim ownership of any
+# outputs generated using the software or derivative works thereof. Any code contributions that you
+# share with NVIDIA are licensed to NVIDIA as feedback under this License and may be incorporated
+# in future releases without notice or attribution.
+# By using, reproducing, modifying, distributing, performing, or displaying any portion or element
+# of the software or derivative works thereof, you agree to be bound by this License.
+
 from typing import List, Optional
 
 import numpy as np
@@ -21,7 +25,7 @@ from visualizer import RerunVisualizer
 RESOLUTION = (640, 360)
 FPS = 30
 WARMUP_FRAMES = 60
-IMAGE_JITTER_THRESHOLD_MS = 35 * 1e6  # 35ms in nanoseconds
+IMAGE_JITTER_THRESHOLD_NS = 35 * 1e6  # 35ms in nanoseconds
 NUM_VIZ_CAMERAS = 2
 
 
@@ -121,11 +125,11 @@ def main() -> None:
             # Check timestamp difference with previous frame
             if prev_timestamp is not None:
                 timestamp_diff = timestamp - prev_timestamp
-                if timestamp_diff > IMAGE_JITTER_THRESHOLD_MS:
+                if timestamp_diff > IMAGE_JITTER_THRESHOLD_NS:
                     print(
                         f"Warning: Camera stream message drop: timestamp gap "
                         f"({timestamp_diff/1e6:.2f} ms) exceeds threshold "
-                        f"{IMAGE_JITTER_THRESHOLD_MS/1e6:.2f} ms"
+                        f"{IMAGE_JITTER_THRESHOLD_NS/1e6:.2f} ms"
                     )
 
             frame_id += 1
@@ -142,7 +146,11 @@ def main() -> None:
                     timestamp, images=[images[0]], depths=[images[1]]
                 )
 
-                odom_pose = odom_pose_estimate.world_from_rig.pose
+                odom_pose_with_cov = odom_pose_estimate.world_from_rig
+                if odom_pose_with_cov is None:
+                    print(f"Tracking failed at frame {frame_id}")
+                    continue
+                odom_pose = odom_pose_with_cov.pose
                 trajectory.append(odom_pose.translation)
 
                 # Store current timestamp for next iteration
@@ -154,7 +162,7 @@ def main() -> None:
                 visualizer.visualize_frame(
                     frame_id=frame_id,
                     images=images,
-                    pose=odom_pose,
+                    pose=odom_pose_with_cov.pose,
                     observations_main_cam=[observations, observations],
                     trajectory=trajectory,
                     timestamp=timestamp
