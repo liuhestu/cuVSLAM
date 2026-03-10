@@ -1,0 +1,438 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cuvslam.tracker &mdash; PyCuVSLAM  documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/custom.css?v=554d90ad" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=5929fcd5"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            PyCuVSLAM
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../api.html">API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">PyCuVSLAM</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">cuvslam.tracker</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cuvslam.tracker</h1><div class="highlight"><pre>
+<span></span><span class="c1"># Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.</span>
+<span class="c1">#</span>
+<span class="c1"># NVIDIA software released under the NVIDIA Community License is intended to be used to enable</span>
+<span class="c1"># the further development of AI and robotics technologies. Such software has been designed, tested,</span>
+<span class="c1"># and optimized for use with NVIDIA hardware, and this License grants permission to use the software</span>
+<span class="c1"># solely with such hardware.</span>
+<span class="c1"># Subject to the terms of this License, NVIDIA confirms that you are free to commercially use,</span>
+<span class="c1"># modify, and distribute the software with NVIDIA hardware. NVIDIA does not claim ownership of any</span>
+<span class="c1"># outputs generated using the software or derivative works thereof. Any code contributions that you</span>
+<span class="c1"># share with NVIDIA are licensed to NVIDIA as feedback under this License and may be incorporated</span>
+<span class="c1"># in future releases without notice or attribution.</span>
+<span class="c1"># By using, reproducing, modifying, distributing, performing, or displaying any portion or element</span>
+<span class="c1"># of the software or derivative works thereof, you agree to be bound by this License.</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">cuVSLAM Tracker - A wrapper combining Odometry and SLAM functionality.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Tuple</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.pycuvslam</span><span class="w"> </span><span class="kn">import</span> <span class="n">Odometry</span><span class="p">,</span> <span class="n">Slam</span><span class="p">,</span> <span class="n">Rig</span><span class="p">,</span> <span class="n">PoseEstimate</span><span class="p">,</span> <span class="n">Pose</span><span class="p">,</span> <span class="n">ImuMeasurement</span><span class="p">,</span> <span class="n">Observation</span><span class="p">,</span> <span class="n">Landmark</span><span class="p">,</span> <span class="n">PoseStamped</span>
+
+<span class="n">ImageArray</span> <span class="o">=</span> <span class="n">Any</span>  <span class="c1"># np.ndarray, torch.Tensor, etc. (CPU or CUDA)</span>
+
+
+<div class="viewcode-block" id="Tracker">
+<a class="viewcode-back" href="../../api.html#cuvslam.Tracker">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Tracker</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A wrapper that combines cuVSLAM Odometry and SLAM functionality.</span>
+
+<span class="sd">    This class automatically manages both the Odometry and SLAM instances,</span>
+<span class="sd">    providing a simplified interface for common use cases.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># Expose inner classes of Odometry &amp; Slam</span>
+    <span class="n">OdometryMode</span> <span class="o">=</span> <span class="n">Odometry</span><span class="o">.</span><span class="n">OdometryMode</span>
+    <span class="n">MulticameraMode</span> <span class="o">=</span> <span class="n">Odometry</span><span class="o">.</span><span class="n">MulticameraMode</span>
+    <span class="n">OdometryConfig</span> <span class="o">=</span> <span class="n">Odometry</span><span class="o">.</span><span class="n">Config</span>
+    <span class="n">OdometryRGBDSettings</span> <span class="o">=</span> <span class="n">Odometry</span><span class="o">.</span><span class="n">RGBDSettings</span>
+
+    <span class="n">SlamConfig</span> <span class="o">=</span> <span class="n">Slam</span><span class="o">.</span><span class="n">Config</span>
+    <span class="n">SlamMetrics</span> <span class="o">=</span> <span class="n">Slam</span><span class="o">.</span><span class="n">Metrics</span>
+    <span class="n">SlamLocalizationSettings</span> <span class="o">=</span> <span class="n">Slam</span><span class="o">.</span><span class="n">LocalizationSettings</span>
+    <span class="n">SlamDataLayer</span> <span class="o">=</span> <span class="n">Slam</span><span class="o">.</span><span class="n">DataLayer</span>
+    <span class="n">PoseGraphNode</span> <span class="o">=</span> <span class="n">Slam</span><span class="o">.</span><span class="n">PoseGraphNode</span>
+    <span class="n">PoseGraphEdge</span> <span class="o">=</span> <span class="n">Slam</span><span class="o">.</span><span class="n">PoseGraphEdge</span>
+    <span class="n">PoseGraph</span> <span class="o">=</span> <span class="n">Slam</span><span class="o">.</span><span class="n">PoseGraph</span>
+    <span class="n">SlamLandmark</span> <span class="o">=</span> <span class="n">Slam</span><span class="o">.</span><span class="n">Landmark</span>
+    <span class="n">SlamLandmarks</span> <span class="o">=</span> <span class="n">Slam</span><span class="o">.</span><span class="n">Landmarks</span>
+    <span class="n">LocalizerProbe</span> <span class="o">=</span> <span class="n">Slam</span><span class="o">.</span><span class="n">LocalizerProbe</span>
+    <span class="n">LocalizerProbes</span> <span class="o">=</span> <span class="n">Slam</span><span class="o">.</span><span class="n">LocalizerProbes</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+                 <span class="n">rig</span><span class="p">:</span> <span class="n">Rig</span><span class="p">,</span>
+                 <span class="n">odom_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Odometry</span><span class="o">.</span><span class="n">Config</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+                 <span class="n">slam_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Slam</span><span class="o">.</span><span class="n">Config</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initialize the cuVSLAM system. Each `Odometry.OdometryMode` has specific `rig` requirements.</span>
+
+<span class="sd">        Parameters:</span>
+<span class="sd">            rig: Camera rig configuration</span>
+<span class="sd">            odom_config: Optional odometry configuration (uses defaults if omitted)</span>
+<span class="sd">            slam_config: Optional SLAM configuration (disables SLAM if None)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">odom_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">odom_config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">OdometryConfig</span><span class="p">()</span>
+        <span class="c1"># need to export observations/landmarks for Slam</span>
+        <span class="k">if</span> <span class="n">slam_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">odom_config</span><span class="o">.</span><span class="n">enable_observations_export</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="n">odom_config</span><span class="o">.</span><span class="n">enable_landmarks_export</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="c1"># Create odometry</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">odom</span> <span class="o">=</span> <span class="n">Odometry</span><span class="p">(</span><span class="n">rig</span><span class="p">,</span> <span class="n">odom_config</span><span class="p">)</span>
+        <span class="c1"># Create SLAM</span>
+        <span class="n">primary_cams</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">odom</span><span class="o">.</span><span class="n">get_primary_cameras</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">slam</span> <span class="o">=</span> <span class="n">Slam</span><span class="p">(</span><span class="n">rig</span><span class="p">,</span> <span class="n">primary_cams</span><span class="p">,</span> <span class="n">slam_config</span><span class="p">)</span> <span class="k">if</span> <span class="n">slam_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+
+<div class="viewcode-block" id="Tracker.track">
+<a class="viewcode-back" href="../../api.html#cuvslam.Tracker.track">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">track</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+              <span class="n">timestamp</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+              <span class="n">images</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">ImageArray</span><span class="p">],</span>
+              <span class="n">masks</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">ImageArray</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+              <span class="n">depths</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">ImageArray</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+              <span class="n">gt_pose</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Pose</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">PoseEstimate</span><span class="p">,</span>
+                                                       <span class="n">Optional</span><span class="p">[</span><span class="n">Pose</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Track a rig pose using current image frame.</span>
+
+<span class="sd">        This method combines odometry and SLAM processing in a single call.</span>
+
+<span class="sd">        In inertial mode, if visual odometry tracker fails to compute a pose, the function returns the position calculated from a user-provided IMU data.</span>
+<span class="sd">        If after several calls of Track() visual odometry is not able to recover, then invalid pose will be returned.</span>
+<span class="sd">        Odometry will output poses in the same coordinate frame until a loss of tracking.</span>
+
+<span class="sd">        To get SLAM poses, SLAM must be enabled in the constructor by providing a non-null `slam_config`.</span>
+<span class="sd">        SLAM poses may have loop closure (LC) jumps when LC is detected and pose graph is optimized.</span>
+<span class="sd">        SLAM poses cannot be adjusted retroactively, so use `get_all_slam_poses` method to get smooth trajectory up to the latest frame.</span>
+<span class="sd">        Also, in asynchronous mode, LC is done in a separate work thread to keep `track` call fast, so SLAM poses are not updated immediately.</span>
+
+<span class="sd">        All cameras must be synchronized. If a camera rig provides &quot;almost synchronized&quot; frames, the timestamps should be within 1 millisecond.</span>
+
+<span class="sd">        Images (masks, depth images, etc.) can be numpy arrays or tensors, both GPU (CUDA) and CPU.</span>
+<span class="sd">        All data must be of the same type (either GPU or CPU).</span>
+<span class="sd">        This is not the same as `odom_config.use_gpu` - if odometry uses GPU for computations,</span>
+<span class="sd">        images etc. can still be either CPU or GPU arrays/tensors.</span>
+
+<span class="sd">        The images etc. must be in the same order as cameras in the rig.</span>
+<span class="sd">        If data for a camera is not available, pass empty array or tensor for that camera image.</span>
+
+<span class="sd">        Parameters:</span>
+<span class="sd">            timestamp: Images timestamp in nanoseconds</span>
+<span class="sd">            images: List of numpy arrays or tensors containing the camera images</span>
+<span class="sd">            masks: Optional list of numpy arrays or tensors containing masks for the images</span>
+<span class="sd">            depths: Optional list of numpy arrays or tensors containing depth images</span>
+<span class="sd">            gt_pose: Optional ground truth pose. Should be provided if `gt_align_mode` is enabled, otherwise should be None.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            PoseEstimate: The computed pose estimate from Odometry. On failure `world_from_rig` will be `None`.</span>
+<span class="sd">            Pose: If SLAM is enabled, the computed pose estimate from SLAM, otherwise `None`.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: If data checks fail (e.g. timestamps are out of order, images sizes are inconsistent, etc.).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">pose_estimate</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">odom</span><span class="o">.</span><span class="n">track</span><span class="p">(</span><span class="n">timestamp</span><span class="p">,</span> <span class="n">images</span><span class="p">,</span> <span class="n">masks</span><span class="p">,</span> <span class="n">depths</span><span class="p">)</span>
+
+        <span class="n">slam_pose</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">slam</span> <span class="ow">and</span> <span class="n">pose_estimate</span><span class="o">.</span><span class="n">world_from_rig</span><span class="p">:</span>
+            <span class="n">state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">odom</span><span class="o">.</span><span class="n">get_state</span><span class="p">()</span>
+            <span class="n">slam_pose</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">slam</span><span class="o">.</span><span class="n">track</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">gt_pose</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">pose_estimate</span><span class="p">,</span> <span class="n">slam_pose</span></div>
+
+
+<div class="viewcode-block" id="Tracker.register_imu_measurement">
+<a class="viewcode-back" href="../../api.html#cuvslam.Tracker.register_imu_measurement">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">register_imu_measurement</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sensor_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">imu_measurement</span><span class="p">:</span> <span class="n">ImuMeasurement</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Register an IMU measurement with the tracker.</span>
+
+<span class="sd">        Requires Inertial odometry mode.</span>
+
+<span class="sd">        If visual odometry loses camera position, it briefly continues execution</span>
+<span class="sd">        using user-provided IMU measurements while trying to recover the position.</span>
+<span class="sd">        :meth:`register_imu_measurement` should be called in between image acquisitions</span>
+<span class="sd">        however many IMU measurements there are:</span>
+
+<span class="sd">        - tracker.track</span>
+<span class="sd">        - tracker.register_imu_measurement</span>
+<span class="sd">        - ...</span>
+<span class="sd">        - tracker.register_imu_measurement</span>
+<span class="sd">        - tracker.track</span>
+<span class="sd">        - tracker.register_imu_measurement</span>
+<span class="sd">        - ...</span>
+
+<span class="sd">        Higher frequency IMU measurements are recommended.</span>
+
+<span class="sd">        IMU sensors and cameras clocks must be synchronized. :meth:`track` and :meth:`register_imu_measurement`</span>
+<span class="sd">        must be called in strict ascending order of timestamps.</span>
+
+<span class="sd">        Parameters:</span>
+<span class="sd">            sensor_index: Sensor index; must be 0, as only one sensor is supported now</span>
+<span class="sd">            imu_measurement: IMU measurement to register</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: If IMU fusion is disabled or if called out of the order of timestamps.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">odom</span><span class="o">.</span><span class="n">register_imu_measurement</span><span class="p">(</span><span class="n">sensor_index</span><span class="p">,</span> <span class="n">imu_measurement</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Tracker.get_last_observations">
+<a class="viewcode-back" href="../../api.html#cuvslam.Tracker.get_last_observations">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_last_observations</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">camera_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Observation</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get observations from the last frame for specified camera. See :class:`Observation`.</span>
+<span class="sd">        Requires `enable_observations_export=True` in :class:`OdometryConfig`.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">odom</span><span class="o">.</span><span class="n">get_last_observations</span><span class="p">(</span><span class="n">camera_index</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Tracker.get_last_landmarks">
+<a class="viewcode-back" href="../../api.html#cuvslam.Tracker.get_last_landmarks">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_last_landmarks</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Landmark</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get landmarks from the last frame. See :class:`Landmark`.</span>
+<span class="sd">        Requires `enable_landmarks_export=True` in :class:`OdometryConfig`.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">odom</span><span class="o">.</span><span class="n">get_last_landmarks</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="Tracker.get_last_gravity">
+<a class="viewcode-back" href="../../api.html#cuvslam.Tracker.get_last_gravity">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_last_gravity</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get gravity vector from the last frame.</span>
+<span class="sd">        Returns `None` if gravity is not yet available.</span>
+<span class="sd">        Requires Inertial mode (`odometry_mode=OdometryMode.Inertial` in :class:`OdometryConfig`)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">odom</span><span class="o">.</span><span class="n">get_last_gravity</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="Tracker.get_final_landmarks">
+<a class="viewcode-back" href="../../api.html#cuvslam.Tracker.get_final_landmarks">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_final_landmarks</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get all final landmarks from all frames.</span>
+<span class="sd">        Landmarks are 3D points in the odometry start frame.</span>
+<span class="sd">        Requires `enable_final_landmarks_export=True` in :class:`OdometryConfig`.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">odom</span><span class="o">.</span><span class="n">get_final_landmarks</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="Tracker.get_all_slam_poses">
+<a class="viewcode-back" href="../../api.html#cuvslam.Tracker.get_all_slam_poses">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_all_slam_poses</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">max_poses_count</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">PoseStamped</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get all SLAM poses for each frame.</span>
+
+<span class="sd">        Returns all SLAM poses after optimization with the latest pose graph.</span>
+<span class="sd">        SLAM poses from track() method will have jumps after loop closures.</span>
+<span class="sd">        With this method, on the other hand, you will have smooth output because it recalculates past poses using the current pose graph.</span>
+
+<span class="sd">        Parameters:</span>
+<span class="sd">            max_poses_count: Maximum number of poses to return (0 for all)</span>
+<span class="sd">        Returns:</span>
+<span class="sd">            List of poses with timestamps</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">slam</span><span class="o">.</span><span class="n">get_all_slam_poses</span><span class="p">(</span><span class="n">max_poses_count</span><span class="p">)</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">slam</span> <span class="k">else</span> <span class="p">[]</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_slam_pose</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pose</span><span class="p">:</span> <span class="n">Pose</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Set the rig SLAM pose to a value provided by a user.</span>
+<span class="sd">        This is useful for initializing SLAM (or resetting in the process) with a pose known from another source.</span>
+<span class="sd">        Subsequent calls to `track` will use this pose as the starting point for SLAM.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">slam</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">slam</span><span class="o">.</span><span class="n">set_slam_pose</span><span class="p">(</span><span class="n">pose</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">save_map</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">folder_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">callback</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">bool</span><span class="p">],</span> <span class="kc">None</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Save SLAM database (map) to a folder asynchronously.</span>
+<span class="sd">        This folder will be created, if it does not exist.</span>
+<span class="sd">        **WARNING**: *Contents of the folder will be overwritten.*</span>
+<span class="sd">        This method can work asynchronously depending on the `sync_mode` parameter in `Slam.Config`.</span>
+<span class="sd">        In both cases, the callback will be called with a flag indicating if the map was saved successfully.</span>
+
+<span class="sd">        Parameters:</span>
+<span class="sd">            folder_name: Folder name where SLAM database will be saved</span>
+<span class="sd">            callback: Function to be called when save is complete (takes bool success parameter)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">slam</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">slam</span><span class="o">.</span><span class="n">save_map</span><span class="p">(</span><span class="n">folder_name</span><span class="p">,</span> <span class="n">callback</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">callback</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>  <span class="c1"># No SLAM instance to save the map</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">localize_in_map</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+                        <span class="n">folder_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+                        <span class="n">guess_pose</span><span class="p">:</span> <span class="n">Pose</span><span class="p">,</span>
+                        <span class="n">images</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">ImageArray</span><span class="p">],</span>
+                        <span class="n">settings</span><span class="p">:</span> <span class="n">Slam</span><span class="o">.</span><span class="n">LocalizationSettings</span><span class="p">,</span>
+                        <span class="n">callback</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">Optional</span><span class="p">[</span><span class="n">Pose</span><span class="p">],</span> <span class="nb">str</span><span class="p">],</span> <span class="kc">None</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Localize in the existing database (map) asynchronously.</span>
+
+<span class="sd">        Finds the position of the camera in existing SLAM database.</span>
+<span class="sd">        If successful, sets the SLAM pose to the found position.</span>
+<span class="sd">        This method works asynchronously depending on the `sync_mode` parameter in `Slam.Config`.</span>
+<span class="sd">        In both cases, the callback will be called with localization result or error message.</span>
+
+<span class="sd">        Parameters:</span>
+<span class="sd">            folder_name: Folder name which stores saved SLAM database</span>
+<span class="sd">            guess_pose: Proposed pose where the robot might be</span>
+<span class="sd">            images: List of numpy arrays or tensors containing the camera images</span>
+<span class="sd">            settings: Localization settings</span>
+<span class="sd">            callback: Function to be called when localization is complete (takes &lt;Pose | None&gt; result and error message parameters)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">slam</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">slam</span><span class="o">.</span><span class="n">localize_in_map</span><span class="p">(</span><span class="n">folder_name</span><span class="p">,</span> <span class="n">guess_pose</span><span class="p">,</span> <span class="n">images</span><span class="p">,</span> <span class="n">settings</span><span class="p">,</span> <span class="n">callback</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">callback</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;SLAM is not enabled; cannot localize in map.&quot;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Tracker.get_slam_landmarks">
+<a class="viewcode-back" href="../../api.html#cuvslam.Tracker.get_slam_landmarks">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_slam_landmarks</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">layer</span><span class="p">:</span> <span class="n">SlamDataLayer</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">SlamLandmarks</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get landmarks for a given data layer of SLAM. See :class:`SlamLandmarks`, :class:`SlamDataLayer`.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">slam</span><span class="o">.</span><span class="n">get_landmarks</span><span class="p">(</span><span class="n">layer</span><span class="p">)</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">slam</span> <span class="k">else</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="Tracker.get_pose_graph">
+<a class="viewcode-back" href="../../api.html#cuvslam.Tracker.get_pose_graph">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_pose_graph</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">PoseGraph</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get pose graph consisting of all keyframes and their connections including loop closures. See :class:`PoseGraph`.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">slam</span><span class="o">.</span><span class="n">get_pose_graph</span><span class="p">()</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">slam</span> <span class="k">else</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="Tracker.get_localizer_probes">
+<a class="viewcode-back" href="../../api.html#cuvslam.Tracker.get_localizer_probes">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_localizer_probes</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">LocalizerProbes</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get localizer probes from the most recent localization attempt. See :class:`LocalizerProbes`.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">slam</span><span class="o">.</span><span class="n">get_localizer_probes</span><span class="p">()</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">slam</span> <span class="k">else</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="Tracker.get_slam_metrics">
+<a class="viewcode-back" href="../../api.html#cuvslam.Tracker.get_slam_metrics">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_slam_metrics</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">SlamMetrics</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get SLAM metrics. See :class:`SlamMetrics`&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">slam</span><span class="o">.</span><span class="n">get_slam_metrics</span><span class="p">()</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">slam</span> <span class="k">else</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="Tracker.get_loop_closure_poses">
+<a class="viewcode-back" href="../../api.html#cuvslam.Tracker.get_loop_closure_poses">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_loop_closure_poses</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">PoseStamped</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get list of last 10 loop closure poses with timestamps.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">slam</span><span class="o">.</span><span class="n">get_loop_closure_poses</span><span class="p">()</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">slam</span> <span class="k">else</span> <span class="kc">None</span></div>
+
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">merge_maps</span><span class="p">(</span><span class="n">rig</span><span class="p">:</span> <span class="n">Rig</span><span class="p">,</span> <span class="n">databases</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">output_folder</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Merge existing maps into one map.</span>
+
+<span class="sd">        Don&#39;t use any of the input folders as `output_folder` to avoid overwriting.</span>
+
+<span class="sd">        This method merges multiple maps into a single map. Maps must have the same world coordinate frame,</span>
+<span class="sd">        e.g. using `set_slam_pose` from a ground truth source.</span>
+
+<span class="sd">        This method cannot be used to merge maps from different locations,</span>
+<span class="sd">        because pose graphs from input maps must be combined into a single graph.</span>
+
+<span class="sd">        Parameters:</span>
+<span class="sd">            rig: Camera rig configuration</span>
+<span class="sd">            databases: Input array of folders with existing databases</span>
+<span class="sd">            output_folder: folder to save output database</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">Slam</span><span class="o">.</span><span class="n">merge_maps</span><span class="p">(</span><span class="n">rig</span><span class="p">,</span> <span class="n">databases</span><span class="p">,</span> <span class="n">output_folder</span><span class="p">)</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, NVIDIA CORPORATION.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
