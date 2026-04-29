@@ -15,6 +15,7 @@ import cuvslam as vslam
 import h5py
 import rerun as rr
 import rerun.blueprint as rrb
+from collections import deque
 
 # ---------- ROS2 (optional) ----------
 try:
@@ -27,6 +28,7 @@ except ImportError:
     ROS2_AVAILABLE = False
 
 # ==========  Configuration ==========
+ENABLE_VISUALIZATION = os.environ.get("ENABLE_VIZ", "1") == "1"
 FPS = 30
 RESOLUTION = (1280, 720)
 WARMUP_FRAMES = 60
@@ -110,7 +112,7 @@ class CameraPosePublisher(Node):
         self.pub.publish(msg)
 
 # ==========  VIO Process (NO RERUN, sends data via Queue) ==========
-def vio_process(camera_id, device_id, num_cameras, vis_queue, traj_queue):
+def vio_process(camera_id, device_id, num_cameras, vis_queue, traj_queue, enable_viz):
     if ROS2_AVAILABLE:
         rclpy.init(args=None)
         ros_node = CameraPosePublisher(camera_id)
@@ -232,15 +234,21 @@ def vio_process(camera_id, device_id, num_cameras, vis_queue, traj_queue):
                 ros_node.publish_pose(ts_ns, trans, quat)
                 rclpy.spin_once(ros_node, timeout_sec=0)
 
-            # 发送给主进程
-            vis_queue.put({
-                'camera_id': camera_id,
-                'timestamp_ns': ts_ns,
-                'left_image': left_img,
-                'translation': trans,
-                'rotation': quat,
-                'observations': obs_list
-            })
+            # 定时打印位姿（每 60 帧打印一次，约每秒一次）
+            if frame_id % 60 == 0:
+                print(f"[Cam {camera_id}] pos: ({trans[0]:.3f}, {trans[1]:.3f}, {trans[2]:.3f}) "
+                      f"quat: ({quat[0]:.3f}, {quat[1]:.3f}, {quat[2]:.3f}, {quat[3]:.3f})")
+
+            # 仅在启用可视化且队列有效时发送数据
+            if enable_viz and vis_queue is not None:
+                vis_queue.put({
+                    'camera_id': camera_id,
+                    'timestamp_ns': ts_ns,
+                    'left_image': left_img,
+                    'translation': trans,
+                    'rotation': quat,
+                    'observations': obs_list
+                })
     except KeyboardInterrupt:
         pass
     finally:
@@ -249,14 +257,21 @@ def vio_process(camera_id, device_id, num_cameras, vis_queue, traj_queue):
         traj_queue.put((camera_id, traj_full))
         print(f"[Camera {camera_id}] Finished. {len(traj_full)} poses.")
 
+
+
 # ==========  Main Process ==========
 def main():
     set_start_method('spawn', force=True)
 
-    # 启动 Rerun Viewer（主进程）
-    rr.init("multi_oak_vio", spawn=True)
-    time.sleep(2)
+    # ---------- 可视化开关（环境变量 ENABLE_VIZ，默认开启）----------
+    enable_viz = os.environ.get("ENABLE_VIZ", "1") == "1"
 
+    # ---------- 仅在启用可视化时启动 Rerun ----------
+    if enable_viz:
+        rr.init("multi_oak_vio", spawn=True)
+        time.sleep(2)
+
+    # ---------- 获取所有 OAK-D 设备 ----------
     infos = dai.Device.getAllAvailableDevices()
     if not infos:
         print("No OAK-D devices found.")
@@ -267,16 +282,17 @@ def main():
     for i, info in enumerate(infos):
         print(f"  {i}: {info.name} (deviceId: {info.deviceId})")
 
-    # ---------- 动态蓝图：左侧纵列图像，右侧 3D ----------
-    cam_views = []
-    for i in range(num_cameras):
-        cam_views.append(rrb.Spatial2DView(origin=f"cam_{i}/left", name=f"cam{i}-left"))
-    left_col = rrb.Vertical(*cam_views)
-    right_3d = rrb.Spatial3DView(name="3D")
-    blueprint = rrb.Blueprint(rrb.Horizontal(left_col, right_3d))
-    rr.send_blueprint(blueprint)
+    # ---------- 如果开启可视化，发送蓝图 ----------
+    if enable_viz:
+        cam_views = []
+        for i in range(num_cameras):
+            cam_views.append(rrb.Spatial2DView(origin=f"cam_{i}/left", name=f"cam{i}-left"))
+        left_col = rrb.Vertical(*cam_views)
+        right_3d = rrb.Spatial3DView(name="3D")
+        blueprint = rrb.Blueprint(rrb.Horizontal(left_col, right_3d))
+        rr.send_blueprint(blueprint)
 
-    # ---------- 偏移量：多个相机轨迹起点分离 ----------
+    # ---------- 轨迹偏移（始终计算，即使可视化关闭）----------
     offsets = {}
     if num_cameras == 1:
         offsets[0] = np.zeros(3)
@@ -293,8 +309,8 @@ def main():
         offsets[2] = np.array([-0.5,  0.5, 0])
         offsets[3] = np.array([ 0.5,  0.5, 0])
 
-    # ---------- 启动子进程 ----------
-    vis_queue = Queue()
+    # ---------- 队列定义 ----------
+    vis_queue = Queue() if enable_viz else None
     traj_queue = Queue()
     processes = []
 
@@ -306,70 +322,84 @@ def main():
         sys.exit(0)
     signal.signal(signal.SIGINT, handler)
 
+    # ---------- 启动子进程（传入 enable_viz 控制是否发送可视化数据）----------
     for cid, info in enumerate(infos):
         p = Process(target=vio_process,
                     args=(cid, info.deviceId, num_cameras,
-                          vis_queue, traj_queue))
+                          vis_queue,      # 若关闭可视化，则为 None
+                          traj_queue,
+                          enable_viz))    # 新增参数
         p.start()
         processes.append(p)
 
-    # ---------- 主可视化循环 ----------
-    max_traj_len = 2000
-    trajectories = {cid: deque(maxlen=max_traj_len) for cid in range(num_cameras)}
-    viz_frame_id = 0
-    last_traj_update = {cid: 0 for cid in range(num_cameras)}
+    # ---------- 主循环：根据可视化开关选择不同逻辑 ----------
+    if enable_viz:
+        # 可视化开启：接收数据并绘制
+        from collections import deque
+        max_traj_len = 2000
+        trajectories = {cid: deque(maxlen=max_traj_len) for cid in range(num_cameras)}
+        viz_frame_id = 0
+        last_traj_update = {cid: 0 for cid in range(num_cameras)}
 
-    try:
-        while any(p.is_alive() for p in processes):
-            while not vis_queue.empty():
-                data = vis_queue.get()
-                cid = data['camera_id']
-                ts_ns = data['timestamp_ns']
-                left_img = data['left_image']
-                trans = data['translation']
-                quat = data['rotation']
-                observations = data['observations']
+        try:
+            while any(p.is_alive() for p in processes):
+                while not vis_queue.empty():
+                    data = vis_queue.get()
+                    cid = data['camera_id']
+                    ts_ns = data['timestamp_ns']
+                    left_img = data['left_image']
+                    trans = data['translation']
+                    quat = data['rotation']
+                    observations = data['observations']
 
-                offset = offsets.get(cid, np.zeros(3))
-                vis_trans = trans + offset
-                trajectories[cid].append(vis_trans)
+                    offset = offsets.get(cid, np.zeros(3))
+                    vis_trans = trans + offset
+                    trajectories[cid].append(vis_trans)
 
-                rr.set_time_sequence("frame", viz_frame_id)
-                viz_frame_id += 1
+                    rr.set_time_sequence("frame", viz_frame_id)
+                    viz_frame_id += 1
 
-                prefix = f"cam_{cid}"
+                    prefix = f"cam_{cid}"
 
-                # 1. 左目图像
-                rr.log(f"{prefix}/left", rr.Image(left_img).compress(jpeg_quality=80))
+                    # 图像
+                    rr.log(f"{prefix}/left", rr.Image(left_img).compress(jpeg_quality=80))
 
-                # 2. 当前位姿（带偏移）
-                rr.log(f"{prefix}/world/rig", rr.Transform3D(
-                    translation=vis_trans,
-                    rotation=rr.Quaternion(xyzw=quat)
-                ))
+                    # 当前位姿
+                    rr.log(f"{prefix}/world/rig", rr.Transform3D(
+                        translation=vis_trans,
+                        rotation=rr.Quaternion(xyzw=quat)
+                    ))
 
-                # 3. 轨迹（每 10 帧更新一次，减少数据量）
-                if len(trajectories[cid]) > 1 and viz_frame_id - last_traj_update[cid] >= 10:
-                    traj_np = np.array(trajectories[cid])
-                    rr.log(f"{prefix}/world/trajectory", rr.LineStrips3D([traj_np]))
-                    last_traj_update[cid] = viz_frame_id
+                    # 轨迹（每10帧更新一次）
+                    if len(trajectories[cid]) > 1 and viz_frame_id - last_traj_update[cid] >= 10:
+                        traj_np = np.array(trajectories[cid])
+                        rr.log(f"{prefix}/world/trajectory", rr.LineStrips3D([traj_np]))
+                        last_traj_update[cid] = viz_frame_id
 
-                # 4. 2D 特征点
-                if observations:
-                    pts = [[u, v] for (u, v, _) in observations]
-                    cols = [color_from_id(oid) for (_, _, oid) in observations]
-                    if pts:
-                        rr.log(f"{prefix}/left/observations",
-                               rr.Points2D(pts, radii=4, colors=cols))
-            time.sleep(0.001)
+                    # 特征点
+                    if observations:
+                        pts = [[u, v] for (u, v, _) in observations]
+                        cols = [color_from_id(oid) for (_, _, oid) in observations]
+                        if pts:
+                            rr.log(f"{prefix}/left/observations",
+                                   rr.Points2D(pts, radii=4, colors=cols))
+                time.sleep(0.001)
+        except KeyboardInterrupt:
+            pass
+    else:
+        # 可视化关闭：仅等待子进程结束（子进程会自己打印位姿）
+        print("Visualization disabled. Waiting for VIO processes...")
+        try:
+            while any(p.is_alive() for p in processes):
+                time.sleep(0.1)
+        except KeyboardInterrupt:
+            pass
 
-    except KeyboardInterrupt:
-        pass
-    finally:
-        for p in processes:
-            p.join()
+    # 确保所有子进程结束
+    for p in processes:
+        p.join()
 
-    # ---------- 保存 HDF5 ----------
+    # ---------- 收集轨迹并保存为 HDF5 ----------
     all_traj = {}
     while not traj_queue.empty():
         cid, data = traj_queue.get()
