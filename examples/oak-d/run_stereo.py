@@ -33,8 +33,10 @@ from visualizer import RerunVisualizer
 # Constants
 FPS = 30
 RESOLUTION = (1280, 720)
+#RESOLUTION = (640, 480)
 WARMUP_FRAMES = 60
 IMAGE_JITTER_THRESHOLD_NS = 35 * 1e6  # 35ms in nanoseconds
+TUM_OUTPUT_PATH = "oak_stereo_tum.txt"
 
 # Camera border margins to exclude features near image edges
 # This helps avoid using features from highly distorted regions in unrectified OAK-D images
@@ -196,56 +198,70 @@ def main() -> None:
     prev_timestamp: Optional[int] = None
     trajectory: List[np.ndarray] = []
 
-    # Start the pipeline
-    pipeline.start()
+    tum_file = open(TUM_OUTPUT_PATH, "w", encoding="utf-8")
+    try:
+        # Start the pipeline
+        pipeline.start()
 
-    # Capture and process stereo frames
-    while pipeline.isRunning():
-        message_group: dai.MessageGroup = sync_queue.get()
-        left_frame = message_group["left"]
-        right_frame = message_group["right"]
+        # Capture and process stereo frames
+        while pipeline.isRunning():
+            message_group: dai.MessageGroup = sync_queue.get()
+            left_frame = message_group["left"]
+            right_frame = message_group["right"]
 
-        # Get synchronized timestamp from message group (convert timedelta to ns)
-        timestamp_ns = int(message_group.getTimestamp().total_seconds() * 1e9)
+            # Get synchronized timestamp from message group (convert timedelta to ns)
+            timestamp_ns = int(message_group.getTimestamp().total_seconds() * 1e9)
 
 
-        # Check timestamp difference with previous frame
-        if prev_timestamp is not None:
-            timestamp_diff = timestamp_ns - prev_timestamp
-            if timestamp_diff > IMAGE_JITTER_THRESHOLD_NS:
-                print(
-                    f"Warning: Camera stream message drop: timestamp gap "
-                    f"({timestamp_diff/1e6:.2f} ms) exceeds threshold "
-                    f"{IMAGE_JITTER_THRESHOLD_NS/1e6:.2f} ms"
+            # Check timestamp difference with previous frame
+            if prev_timestamp is not None:
+                timestamp_diff = timestamp_ns - prev_timestamp
+                if timestamp_diff > IMAGE_JITTER_THRESHOLD_NS:
+                    print(
+                        f"Warning: Camera stream message drop: timestamp gap "
+                        f"({timestamp_diff/1e6:.2f} ms) exceeds threshold "
+                        f"{IMAGE_JITTER_THRESHOLD_NS/1e6:.2f} ms"
+                    )
+
+            frame_id += 1
+
+            # Warmup for specified number of frames
+            if frame_id > WARMUP_FRAMES:
+                left_img = left_frame.getCvFrame()
+                right_img = right_frame.getCvFrame()
+
+                # Track frame
+                odom_pose_estimate, _ = tracker.track(timestamp_ns, (left_img, right_img))
+                odom_pose = odom_pose_estimate.world_from_rig
+                if odom_pose is None:
+                    print(f"Tracking failed at frame {frame_id}")
+                    continue
+
+                trajectory.append(odom_pose.pose.translation)
+
+                # Save pose in TUM format: timestamp(s) tx ty tz qx qy qz qw
+                timestamp_s = timestamp_ns / 1e9
+                translation = odom_pose.pose.translation
+                rotation = odom_pose.pose.rotation
+                tum_file.write(
+                    f"{timestamp_s:.9f} {translation[0]} {translation[1]} {translation[2]} "
+                    f"{rotation[0]} {rotation[1]} {rotation[2]} {rotation[3]}\n"
+                )
+                tum_file.flush()
+
+                # Visualize results
+                visualizer.visualize_frame(
+                    frame_id=frame_id,
+                    images=[left_img],
+                    pose=odom_pose.pose,
+                    observations_main_cam=[tracker.get_last_observations(0)],
+                    trajectory=trajectory,
+                    timestamp=timestamp_ns
                 )
 
-        frame_id += 1
-
-        # Warmup for specified number of frames
-        if frame_id > WARMUP_FRAMES:
-            left_img = left_frame.getCvFrame()
-            right_img = right_frame.getCvFrame()
-
-            # Track frame
-            odom_pose_estimate, _ = tracker.track(timestamp_ns, (left_img, right_img))
-            odom_pose = odom_pose_estimate.world_from_rig
-            if odom_pose is None:
-                print(f"Tracking failed at frame {frame_id}")
-                continue
-
-            trajectory.append(odom_pose.pose.translation)
-
-            # Visualize results
-            visualizer.visualize_frame(
-                frame_id=frame_id,
-                images=[left_img],
-                pose=odom_pose.pose,
-                observations_main_cam=[tracker.get_last_observations(0)],
-                trajectory=trajectory,
-                timestamp=timestamp_ns
-            )
-
-        prev_timestamp = timestamp_ns
+            prev_timestamp = timestamp_ns
+    finally:
+        tum_file.close()
 
 
 if __name__ == "__main__":
