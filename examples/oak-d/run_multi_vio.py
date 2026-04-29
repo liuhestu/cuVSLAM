@@ -252,11 +252,19 @@ def vio_process(camera_id, device_id, num_cameras, vis_queue, traj_queue, enable
     except KeyboardInterrupt:
         pass
     finally:
-        pipeline.stop(); device.close()
-        if ros_node: ros_node.destroy_node(); rclpy.shutdown()
+        pipeline.stop()
+        device.close()
+        if ros_node:
+            try:
+                ros_node.destroy_node()
+            except:
+                pass
+            try:
+                rclpy.shutdown()
+            except:
+                pass
         traj_queue.put((camera_id, traj_full))
         print(f"[Camera {camera_id}] Finished. {len(traj_full)} poses.")
-
 
 
 # ==========  Main Process ==========
@@ -292,22 +300,22 @@ def main():
         blueprint = rrb.Blueprint(rrb.Horizontal(left_col, right_3d))
         rr.send_blueprint(blueprint)
 
-    # ---------- 轨迹偏移（始终计算，即使可视化关闭）----------
+    # ---------- 轨迹偏移，虚拟起点----------
     offsets = {}
     if num_cameras == 1:
         offsets[0] = np.zeros(3)
     elif num_cameras == 2:
-        offsets[0] = np.array([-0.5, 0.0, 0.0])
-        offsets[1] = np.array([ 0.5, 0.0, 0.0])
+        offsets[0] = np.array([-0.5, 0.0, 0.0]) # 左边
+        offsets[1] = np.array([ 0.5, 0.0, 0.0]) # 右边
     elif num_cameras == 3:
-        offsets[0] = np.array([-0.5, -0.5, 0])
-        offsets[1] = np.array([ 0.5, -0.5, 0])
-        offsets[2] = np.array([ 0.0,  0.5, 0])
+        offsets[0] = np.array([-0.5, -0.5, 0])  # 左下
+        offsets[1] = np.array([ 0.5, -0.5, 0])  # 右下
+        offsets[2] = np.array([ 0.0,  0.5, 0])  # 上中
     else:
-        offsets[0] = np.array([-0.5, -0.5, 0])
-        offsets[1] = np.array([ 0.5, -0.5, 0])
-        offsets[2] = np.array([-0.5,  0.5, 0])
-        offsets[3] = np.array([ 0.5,  0.5, 0])
+        offsets[0] = np.array([-0.5, -0.5, 0])  # 左下
+        offsets[1] = np.array([ 0.5, -0.5, 0])  # 右下
+        offsets[2] = np.array([-0.5,  0.5, 0])  # 左上
+        offsets[3] = np.array([ 0.5,  0.5, 0])  # 右上
 
     # ---------- 队列定义 ----------
     vis_queue = Queue() if enable_viz else None
@@ -319,6 +327,12 @@ def main():
         for p in processes:
             if p.is_alive():
                 p.terminate()
+        # 短暂等待，然后强制结束
+        for p in processes:
+            p.join(timeout=2)
+        for p in processes:
+            if p.is_alive():
+                p.kill()
         sys.exit(0)
     signal.signal(signal.SIGINT, handler)
 
