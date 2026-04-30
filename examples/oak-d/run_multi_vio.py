@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-Multi OAK-D VIO for Rerun 0.22.1 – Stable main-process visualization.
+Multi OAK-D VIO – Stable main-process visualization.
+Use environment vars to override defaults:
+  ENABLE_VIZ=0   -> disable visualization
+  ENABLE_HDF5=0  -> disable trajectory saving
 """
 
 import os, sys, time, signal
@@ -15,7 +18,6 @@ import cuvslam as vslam
 import h5py
 import rerun as rr
 import rerun.blueprint as rrb
-from collections import deque
 
 # ---------- ROS2 (optional) ----------
 try:
@@ -28,8 +30,15 @@ except ImportError:
     ROS2_AVAILABLE = False
 
 # ==========  Configuration ==========
-ENABLE_VISUALIZATION = os.environ.get("ENABLE_VIZ", "1") == "1" # 默认启用可视化
-ENABLE_HDF5 = os.environ.get("ENABLE_HDF5", "1") == "1"   # 默认写入 .h5
+# 默认值：可视化开启，HDF5保存开启
+# 可以通过修改下面两行为 False 来改变默认行为；环境变量优先级更高
+DEFAULT_ENABLE_VIZ = False
+DEFAULT_ENABLE_HDF5 = True
+
+# 环境变量覆盖默认值（终端传参方式：ENABLE_VIZ=0 python3 run_multi_vio.py）
+ENABLE_VISUALIZATION = os.environ.get("ENABLE_VIZ", str(int(DEFAULT_ENABLE_VIZ))) == "1"
+ENABLE_HDF5 = os.environ.get("ENABLE_HDF5", str(int(DEFAULT_ENABLE_HDF5))) == "1"
+
 FPS = 30
 RESOLUTION = (1280, 720)
 WARMUP_FRAMES = 60
@@ -235,7 +244,7 @@ def vio_process(camera_id, device_id, num_cameras, vis_queue, traj_queue, enable
                 ros_node.publish_pose(ts_ns, trans, quat)
                 rclpy.spin_once(ros_node, timeout_sec=0)
 
-            # 定时打印位姿（每 60 帧打印一次，约每秒一次）
+            # 定时打印位姿（每 60 帧打印一次）
             if frame_id % 60 == 0:
                 print(f"[Cam {camera_id}] pos: ({trans[0]:.3f}, {trans[1]:.3f}, {trans[2]:.3f}) "
                       f"quat: ({quat[0]:.3f}, {quat[1]:.3f}, {quat[2]:.3f}, {quat[3]:.3f})")
@@ -272,10 +281,11 @@ def vio_process(camera_id, device_id, num_cameras, vis_queue, traj_queue, enable
 def main():
     set_start_method('spawn', force=True)
 
-    # ---------- 可视化开关（环境变量 ENABLE_VIZ，默认开启）----------
-    enable_viz = os.environ.get("ENABLE_VIZ", "1") == "1"
+    # ---------- 可视化开关 ----------
+    enable_viz = ENABLE_VISUALIZATION
+    print(f"Visualization: {'ON' if enable_viz else 'OFF'}")
+    print(f"HDF5 saving: {'ON' if ENABLE_HDF5 else 'OFF'}")
 
-    # ---------- 仅在启用可视化时启动 Rerun ----------
     if enable_viz:
         rr.init("multi_oak_vio", spawn=True)
         time.sleep(2)
@@ -291,7 +301,7 @@ def main():
     for i, info in enumerate(infos):
         print(f"  {i}: {info.name} (deviceId: {info.deviceId})")
 
-    # ---------- 如果开启可视化，发送蓝图 ----------
+    # ---------- 蓝图 ----------
     if enable_viz:
         cam_views = []
         for i in range(num_cameras):
@@ -301,67 +311,45 @@ def main():
         blueprint = rrb.Blueprint(rrb.Horizontal(left_col, right_3d))
         rr.send_blueprint(blueprint)
 
-    # ---------- 轨迹偏移，虚拟起点----------
+    # ---------- 轨迹偏移（虚拟起点）----------
     offsets = {}
     if num_cameras == 1:
         offsets[0] = np.zeros(3)
     elif num_cameras == 2:
-        offsets[0] = np.array([-0.5, 0.0, 0.0]) # 左边
-        offsets[1] = np.array([ 0.5, 0.0, 0.0]) # 右边
+        offsets[0] = np.array([-0.5, 0.0, 0.0])
+        offsets[1] = np.array([ 0.5, 0.0, 0.0])
     elif num_cameras == 3:
-        offsets[0] = np.array([-0.5, -0.5, 0])  # 左下
-        offsets[1] = np.array([ 0.5, -0.5, 0])  # 右下
-        offsets[2] = np.array([ 0.0,  0.5, 0])  # 上中
+        offsets[0] = np.array([-0.5, -0.5, 0])
+        offsets[1] = np.array([ 0.5, -0.5, 0])
+        offsets[2] = np.array([ 0.0,  0.5, 0])
     else:
-        offsets[0] = np.array([-0.5, -0.5, 0])  # 左下
-        offsets[1] = np.array([ 0.5, -0.5, 0])  # 右下
-        offsets[2] = np.array([-0.5,  0.5, 0])  # 左上
-        offsets[3] = np.array([ 0.5,  0.5, 0])  # 右上
+        offsets[0] = np.array([-0.5, -0.5, 0])
+        offsets[1] = np.array([ 0.5, -0.5, 0])
+        offsets[2] = np.array([-0.5,  0.5, 0])
+        offsets[3] = np.array([ 0.5,  0.5, 0])
 
-    # ---------- 队列定义 ----------
+    # ---------- 队列 ----------
     vis_queue = Queue() if enable_viz else None
     traj_queue = Queue()
     processes = []
 
-    def handler(s, f):
-        print("\nShutting down...")
-        # 先给子进程发送终止信号
-        for p in processes:
-            if p.is_alive():
-                p.terminate()
-        # 等待最多 3 秒
-        for p in processes:
-            p.join(timeout=3)
-        # 强制杀死仍未退出的
-        for p in processes:
-            if p.is_alive():
-                p.kill()
-        # 再次等待
-        for p in processes:
-            p.join(timeout=2)
-        sys.exit(0)
-    signal.signal(signal.SIGINT, handler)
-
-    # ---------- 启动子进程（传入 enable_viz 控制是否发送可视化数据）----------
+    # ---------- 启动子进程 ----------
     for cid, info in enumerate(infos):
         p = Process(target=vio_process,
                     args=(cid, info.deviceId, num_cameras,
-                          vis_queue,      # 若关闭可视化，则为 None
-                          traj_queue,
-                          enable_viz))    # 新增参数
+                          vis_queue, traj_queue, enable_viz))
         p.start()
         processes.append(p)
 
-    # ---------- 主循环：根据可视化开关选择不同逻辑 ----------
-    if enable_viz:
-        # 可视化开启：接收数据并绘制
-        from collections import deque
-        max_traj_len = 2000
-        trajectories = {cid: deque(maxlen=max_traj_len) for cid in range(num_cameras)}
-        viz_frame_id = 0
-        last_traj_update = {cid: 0 for cid in range(num_cameras)}
+    # ---------- 主循环 ----------
+    try:
+        if enable_viz:
+            from collections import deque
+            max_traj_len = 2000
+            trajectories = {cid: deque(maxlen=max_traj_len) for cid in range(num_cameras)}
+            viz_frame_id = 0
+            last_traj_update = {cid: 0 for cid in range(num_cameras)}
 
-        try:
             while any(p.is_alive() for p in processes):
                 while not vis_queue.empty():
                     data = vis_queue.get()
@@ -380,39 +368,29 @@ def main():
                     viz_frame_id += 1
 
                     prefix = f"cam_{cid}"
-
                     # 图像
                     rr.log(f"{prefix}/left", rr.Image(left_img).compress(jpeg_quality=80))
-
-                    # 当前位姿
+                    # 位姿
                     rr.log(f"{prefix}/world/rig", rr.Transform3D(
                         translation=vis_trans,
                         rotation=rr.Quaternion(xyzw=quat)
                     ))
-
-                    qw = quat[3]; qx = quat[0]; qy = quat[1]; qz = quat[2]
-                    rot = Rotation.from_quat([qx, qy, qz, qw])      # scipy 默认 scalar last
-
-                    axis_len = 0.1  # 坐标轴长度，单位米
+                    # 坐标轴
+                    qw, qx, qy, qz = quat[3], quat[0], quat[1], quat[2]
+                    rot = Rotation.from_quat([qx, qy, qz, qw])
+                    axis_len = 0.1
                     axis_x = rot.apply([axis_len, 0, 0])
                     axis_y = rot.apply([0, axis_len, 0])
                     axis_z = rot.apply([0, 0, axis_len])
-
-                    rr.log(
-                        f"{prefix}/world/axes",                       # 与轨迹实体并列
-                        rr.Arrows3D(
-                            origins=[vis_trans, vis_trans, vis_trans],
-                            vectors=[axis_x, axis_y, axis_z],
-                            colors=[(255, 0, 0), (0, 255, 0), (0, 0, 255)]
-                        )
-                    )
-
-                    # 轨迹（每10帧更新一次）
+                    rr.log(f"{prefix}/world/axes",
+                           rr.Arrows3D(origins=[vis_trans]*3,
+                                       vectors=[axis_x, axis_y, axis_z],
+                                       colors=[(255,0,0), (0,255,0), (0,0,255)]))
+                    # 轨迹
                     if len(trajectories[cid]) > 1 and viz_frame_id - last_traj_update[cid] >= 10:
                         traj_np = np.array(trajectories[cid])
                         rr.log(f"{prefix}/world/trajectory", rr.LineStrips3D([traj_np]))
                         last_traj_update[cid] = viz_frame_id
-
                     # 特征点
                     if observations:
                         pts = [[u, v] for (u, v, _) in observations]
@@ -421,46 +399,54 @@ def main():
                             rr.log(f"{prefix}/left/observations",
                                    rr.Points2D(pts, radii=4, colors=cols))
                 time.sleep(0.001)
-        except KeyboardInterrupt:
-            pass
-    else:
-        # 可视化关闭：仅等待子进程结束（子进程会自己打印位姿）
-        print("Visualization disabled. Waiting for VIO processes...")
-        try:
+        else:
+            print("Visualization disabled. Waiting for VIO processes...")
             while any(p.is_alive() for p in processes):
                 time.sleep(0.1)
-        except KeyboardInterrupt:
-            pass
+    except KeyboardInterrupt:
+        print("\nCtrl+C detected, sending SIGINT to all VIO processes...")
+        for p in processes:
+            if p.is_alive():
+                os.kill(p.pid, signal.SIGINT)      # 关键：发送中断信号，触发子进程的 except KeyboardInterrupt
 
-    # 确保所有子进程结束
-    for p in processes:
-        p.join()
+        # 等待子进程完成 finally 并退出（最多等 5 秒）
+        for p in processes:
+            p.join(timeout=5)
 
-    # ---------- 收集轨迹并保存为 HDF5 ----------
+        # 如果仍有未退出进程，强制终止（此时 finally 已执行完，数据应已入队）
+        for p in processes:
+            if p.is_alive():
+                p.terminate()
+                p.join(timeout=2)
+
+    # ---------- 保存 HDF5 ----------
     if ENABLE_HDF5:
         all_traj = {}
         while not traj_queue.empty():
             cid, data = traj_queue.get()
             all_traj[cid] = data
 
-        with h5py.File("multi_oak_vio.h5", "w") as f:
-            for cid, data in all_traj.items():
-                if not data:
-                    continue
-                timestamps = np.array([d[0] for d in data])
-                positions = np.array([d[1] for d in data])
-                quats = np.array([d[2] for d in data])
-                grp = f.create_group(f"cam_{cid}")
-                grp.create_dataset("timestamps", data=timestamps)
-                grp.create_dataset("positions", data=positions)
-                grp.create_dataset("quaternions_xyzw", data=quats)
-                print(f"Saved cam_{cid}: {len(timestamps)} poses.")
-        print("All trajectories saved to multi_oak_vio.h5")
+        if all_traj:
+            with h5py.File("multi_oak_vio.h5", "w") as f:
+                for cid, data in all_traj.items():
+                    if not data:
+                        continue
+                    timestamps = np.array([d[0] for d in data])
+                    positions = np.array([d[1] for d in data])
+                    quats = np.array([d[2] for d in data])
+                    grp = f.create_group(f"cam_{cid}")
+                    grp.create_dataset("timestamps", data=timestamps)
+                    grp.create_dataset("positions", data=positions)
+                    grp.create_dataset("quaternions_xyzw", data=quats)
+                    print(f"Saved cam_{cid}: {len(timestamps)} poses.")
+            print("All trajectories saved to multi_oak_vio.h5")
+        else:
+            print("Warning: No trajectory data received, nothing saved.")
     else:
-        # 仍需要清空队列，防止进程阻塞
         while not traj_queue.empty():
-            _, data = traj_queue.get()
+            _, _ = traj_queue.get()
         print("HDF5 writing disabled. Trajectories not saved.")
+
 
 if __name__ == "__main__":
     main()
