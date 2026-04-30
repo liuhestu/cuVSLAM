@@ -15,6 +15,10 @@ def get_gpu_utilization():
     except Exception:
         return 0.0
 
+def get_memory_usage_percent():
+    """获取系统内存占用百分比"""
+    return psutil.virtual_memory().percent
+
 def main():
     # 检查是否传入了要运行的文件名
     if len(sys.argv) < 2:
@@ -28,14 +32,17 @@ def main():
 
     base_cpus = []
     base_gpus = []
+    base_mems = []          # 新增：基准内存
     # 采样3秒的系统空闲状态
     for _ in range(3):
         base_cpus.append(psutil.cpu_percent(interval=1))
         base_gpus.append(get_gpu_utilization())
+        base_mems.append(get_memory_usage_percent())
 
     base_cpu_avg = statistics.mean(base_cpus)
     base_gpu_avg = statistics.mean(base_gpus)
-    print(f"【基准】当前系统总CPU占用: {base_cpu_avg:.1f}%, GPU占用: {base_gpu_avg:.1f}%\n")
+    base_mem_avg = statistics.mean(base_mems)
+    print(f"【基准】当前系统总CPU占用: {base_cpu_avg:.1f}%, GPU占用: {base_gpu_avg:.1f}%, 内存占用: {base_mem_avg:.1f}%\n")
 
     print(f"=== 正在启动并监控 {target_script} ===")
     print("提示: 随时可以在终端按 Ctrl+C 结束测试并查看统计结果\n")
@@ -46,6 +53,7 @@ def main():
     # 初始化记录容器
     run_cpus = []
     run_gpus = []
+    run_mems = []           # 新增：运行期间内存
 
     # 先初始化一次 psutil 的非阻塞计数器
     psutil.cpu_percent(interval=None)
@@ -55,9 +63,11 @@ def main():
             # 采集瞬时 CPU 利用率（相对上一次调用）
             cpu = psutil.cpu_percent(interval=None)
             gpu = get_gpu_utilization()
+            mem = get_memory_usage_percent()   # 新增：采集内存
 
             run_cpus.append(cpu)
             run_gpus.append(gpu)
+            run_mems.append(mem)
 
             time.sleep(0.5)                   # 采样间隔，可调
     except KeyboardInterrupt:
@@ -71,8 +81,10 @@ def main():
         max_cpu = max(run_cpus)
         avg_gpu = statistics.mean(run_gpus)
         max_gpu = max(run_gpus)
+        avg_mem = statistics.mean(run_mems)
+        max_mem = max(run_mems)
     else:
-        avg_cpu = max_cpu = avg_gpu = max_gpu = 0.0
+        avg_cpu = max_cpu = avg_gpu = max_gpu = avg_mem = max_mem = 0.0
 
     print("\n========== 监控统计 ==========")
     print(f"基准 CPU : {base_cpu_avg:.1f}%")
@@ -81,6 +93,9 @@ def main():
     print(f"基准 GPU : {base_gpu_avg:.1f}%")
     print(f"运行期间 GPU 均值: {avg_gpu:.1f}% , 峰值: {max_gpu:.1f}%")
     print(f"平均GPU占用增加: {avg_gpu - base_gpu_avg:.1f}%")
+    print(f"基准内存: {base_mem_avg:.1f}%")
+    print(f"运行期间内存均值: {avg_mem:.1f}% , 峰值: {max_mem:.1f}%")
+    print(f"平均内存占用增加: {avg_mem - base_mem_avg:.1f}%")
     print(f"采样点数: {len(run_cpus)}")
 
 if __name__ == "__main__":
