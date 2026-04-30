@@ -28,7 +28,8 @@ except ImportError:
     ROS2_AVAILABLE = False
 
 # ==========  Configuration ==========
-ENABLE_VISUALIZATION = os.environ.get("ENABLE_VIZ", "1") == "1"
+ENABLE_VISUALIZATION = os.environ.get("ENABLE_VIZ", "1") == "1" # 默认启用可视化
+ENABLE_HDF5 = os.environ.get("ENABLE_HDF5", "1") == "1"   # 默认写入 .h5
 FPS = 30
 RESOLUTION = (1280, 720)
 WARMUP_FRAMES = 60
@@ -324,15 +325,20 @@ def main():
 
     def handler(s, f):
         print("\nShutting down...")
+        # 先给子进程发送终止信号
         for p in processes:
             if p.is_alive():
                 p.terminate()
-        # 短暂等待，然后强制结束
+        # 等待最多 3 秒
         for p in processes:
-            p.join(timeout=2)
+            p.join(timeout=3)
+        # 强制杀死仍未退出的
         for p in processes:
             if p.is_alive():
                 p.kill()
+        # 再次等待
+        for p in processes:
+            p.join(timeout=2)
         sys.exit(0)
     signal.signal(signal.SIGINT, handler)
 
@@ -384,6 +390,23 @@ def main():
                         rotation=rr.Quaternion(xyzw=quat)
                     ))
 
+                    qw = quat[3]; qx = quat[0]; qy = quat[1]; qz = quat[2]
+                    rot = Rotation.from_quat([qx, qy, qz, qw])      # scipy 默认 scalar last
+
+                    axis_len = 0.1  # 坐标轴长度，单位米
+                    axis_x = rot.apply([axis_len, 0, 0])
+                    axis_y = rot.apply([0, axis_len, 0])
+                    axis_z = rot.apply([0, 0, axis_len])
+
+                    rr.log(
+                        f"{prefix}/world/axes",                       # 与轨迹实体并列
+                        rr.Arrows3D(
+                            origins=[vis_trans, vis_trans, vis_trans],
+                            vectors=[axis_x, axis_y, axis_z],
+                            colors=[(255, 0, 0), (0, 255, 0), (0, 0, 255)]
+                        )
+                    )
+
                     # 轨迹（每10帧更新一次）
                     if len(trajectories[cid]) > 1 and viz_frame_id - last_traj_update[cid] >= 10:
                         traj_np = np.array(trajectories[cid])
@@ -414,26 +437,30 @@ def main():
         p.join()
 
     # ---------- 收集轨迹并保存为 HDF5 ----------
-    all_traj = {}
-    while not traj_queue.empty():
-        cid, data = traj_queue.get()
-        all_traj[cid] = data
+    if ENABLE_HDF5:
+        all_traj = {}
+        while not traj_queue.empty():
+            cid, data = traj_queue.get()
+            all_traj[cid] = data
 
-    with h5py.File("trajectories.h5", "w") as f:
-        for cid, data in all_traj.items():
-            if not data:
-                continue
-            timestamps = np.array([d[0] for d in data])
-            positions = np.array([d[1] for d in data])
-            quats = np.array([d[2] for d in data])
-            grp = f.create_group(f"cam_{cid}")
-            grp.create_dataset("timestamps", data=timestamps)
-            grp.create_dataset("positions", data=positions)
-            grp.create_dataset("quaternions_xyzw", data=quats)
-            print(f"Saved cam_{cid}: {len(timestamps)} poses.")
-
-    print("All trajectories saved to trajectories.h5")
-    print("Done.")
+        with h5py.File("multi_oak_vio.h5", "w") as f:
+            for cid, data in all_traj.items():
+                if not data:
+                    continue
+                timestamps = np.array([d[0] for d in data])
+                positions = np.array([d[1] for d in data])
+                quats = np.array([d[2] for d in data])
+                grp = f.create_group(f"cam_{cid}")
+                grp.create_dataset("timestamps", data=timestamps)
+                grp.create_dataset("positions", data=positions)
+                grp.create_dataset("quaternions_xyzw", data=quats)
+                print(f"Saved cam_{cid}: {len(timestamps)} poses.")
+        print("All trajectories saved to multi_oak_vio.h5")
+    else:
+        # 仍需要清空队列，防止进程阻塞
+        while not traj_queue.empty():
+            _, data = traj_queue.get()
+        print("HDF5 writing disabled. Trajectories not saved.")
 
 if __name__ == "__main__":
     main()
